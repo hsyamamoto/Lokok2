@@ -1,0 +1,20 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="95" fill="#FFD700" stroke="#000" stroke-width="3"/>
+  
+  <!-- Shopping cart handle -->
+  <path d="M30 60 L30 80 L40 80" fill="none" stroke="#000" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Shopping cart body -->
+  <rect x="40" y="80" width="120" height="60" fill="none" stroke="#000" stroke-width="6" rx="5"/>
+  
+  <!-- LOKOK text inside cart -->
+  <text x="100" y="115" font-family="Arial, sans-serif" font-size="28" font-weight="bold" text-anchor="middle" fill="#000">LOKOK</text>
+  
+  <!-- Cart wheels -->
+  <circle cx="65" cy="160" r="8" fill="#000"/>
+  <circle cx="135" cy="160" r="8" fill="#000"/>
+  
+  <!-- Cart bottom line -->
+  <line x1="40" y1="140" x2="160" y2="140" stroke="#000" stroke-width="4"/>
+</svg>

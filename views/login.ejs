@@ -134,13 +134,7 @@
             submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing in...';
             submitButton.disabled = true;
             
-            // Se houver erro, restaurar o botão após um tempo
-            setTimeout(() => {
-                if (submitButton.disabled) {
-                    submitButton.innerHTML = originalContent;
-                    submitButton.disabled = false;
-                }
-            }, 5000);
+            // Não interferir com o redirecionamento - remover o setTimeout que reabilita o botão
         });
     </script>
 </body>

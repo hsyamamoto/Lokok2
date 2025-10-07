@@ -8,7 +8,6 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const { User, UserRepository } = require('./models/User');
 const { pool, initializeDatabase } = require('./database');
-const auditLogger = require('./audit');
 const GoogleDriveService = require('./googleDriveService');
 
 const app = express();
@@ -36,14 +35,38 @@ app.use(express.static('public'));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Caminho para a planilha Excel
-const EXCEL_PATH = process.env.EXCEL_PATH || path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
+// Configuração da planilha (local ou Google Drive)
+let EXCEL_PATH;
+let googleDriveService;
+
+if (NODE_ENV === 'production' && process.env.GOOGLE_DRIVE_FILE_ID) {
+    // Em produção, usar Google Drive
+    console.log('🔧 [PRODUCTION DEBUG] Configurando Google Drive para produção...');
+    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_DRIVE_FILE_ID:', process.env.GOOGLE_DRIVE_FILE_ID ? 'SET' : 'NOT SET');
+    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_SERVICE_ACCOUNT_EMAIL:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'SET' : 'NOT SET');
+    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_PRIVATE_KEY:', process.env.GOOGLE_PRIVATE_KEY ? 'SET' : 'NOT SET');
+    try {
+        googleDriveService = new GoogleDriveService();
+        console.log('✅ [PRODUCTION DEBUG] Google Drive Service inicializado');
+        console.log('📊 Configurado para usar Google Drive em produção');
+    } catch (error) {
+        console.error('❌ [PRODUCTION DEBUG] Erro ao inicializar Google Drive Service:', error);
+        console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
+    }
+} else {
+    // Em desenvolvimento, usar arquivo local
+    EXCEL_PATH = process.env.EXCEL_PATH || path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
+    console.log('📊 [PRODUCTION DEBUG] Configurado para usar arquivo Excel local');
+}
+
+// Logs detalhados para produção
+console.log('🚀 [PRODUCTION DEBUG] Iniciando servidor LOKOK2...');
+console.log('🌍 [PRODUCTION DEBUG] NODE_ENV:', process.env.NODE_ENV);
+console.log('📁 [PRODUCTION DEBUG] __dirname:', __dirname);
+console.log('📁 [PRODUCTION DEBUG] process.cwd():', process.cwd());
 
 // Instância do repositório de usuários
 const userRepository = new UserRepository();
-
-// Instância do serviço Google Drive
-const googleDriveService = new GoogleDriveService();
 
 // Configuração do multer para upload de arquivos
 const storage = multer.memoryStorage();
@@ -102,28 +125,35 @@ function requireManagerOrAdmin(req, res, next) {
     }
 }
 
-// Função para ler dados da planilha do Google Drive
+// Função para ler dados da planilha
 async function readExcelData() {
     try {
-        const spreadsheetPath = await googleDriveService.getSpreadsheetPath();
-        const workbook = XLSX.readFile(spreadsheetPath);
         let allData = [];
         
-        // Ler aba 'Wholesale LOKOK' (primeira aba)
-        if (workbook.SheetNames.includes('Wholesale LOKOK')) {
-            const worksheet1 = workbook.Sheets['Wholesale LOKOK'];
-            const data1 = XLSX.utils.sheet_to_json(worksheet1);
-            allData = allData.concat(data1);
+        if (NODE_ENV === 'production' && googleDriveService) {
+            // Em produção, usar Google Drive
+            console.log('📥 Carregando dados do Google Drive...');
+            allData = await googleDriveService.readSpreadsheetData();
+        } else {
+            // Em desenvolvimento, usar arquivo local
+            const workbook = XLSX.readFile(EXCEL_PATH);
+            
+            // Ler aba 'Wholesale LOKOK' (primeira aba)
+            if (workbook.SheetNames.includes('Wholesale LOKOK')) {
+                const worksheet1 = workbook.Sheets['Wholesale LOKOK'];
+                const data1 = XLSX.utils.sheet_to_json(worksheet1);
+                allData = allData.concat(data1);
+            }
+            
+            // Ler aba 'Wholesale CANADA' (segunda aba)
+            if (workbook.SheetNames.includes('Wholesale CANADA')) {
+                const worksheet2 = workbook.Sheets['Wholesale CANADA'];
+                const data2 = XLSX.utils.sheet_to_json(worksheet2);
+                allData = allData.concat(data2);
+            }
         }
         
-        // Ler aba 'Wholesale CANADA' (segunda aba)
-        if (workbook.SheetNames.includes('Wholesale CANADA')) {
-            const worksheet2 = workbook.Sheets['Wholesale CANADA'];
-            const data2 = XLSX.utils.sheet_to_json(worksheet2);
-            allData = allData.concat(data2);
-        }
-        
-        console.log(`Dados carregados: ${allData.length} registros de ${workbook.SheetNames.length} abas`);
+        console.log(`Dados carregados: ${allData.length} registros`);
         return allData;
     } catch (error) {
         console.error('Error reading spreadsheet:', error);
@@ -134,10 +164,22 @@ async function readExcelData() {
 // Função para escrever dados na planilha
 async function writeExcelData(data) {
     try {
-        await googleDriveService.saveSpreadsheetData(data);
+        if (NODE_ENV === 'production' && googleDriveService) {
+            // Em produção, salvar no Google Drive
+            console.log('💾 Salvando dados no Google Drive...');
+            await googleDriveService.saveSpreadsheetData(data);
+        } else {
+            // Em desenvolvimento, salvar no arquivo local
+            const workbook = XLSX.readFile(EXCEL_PATH);
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            workbook.Sheets[sheetName] = worksheet;
+            XLSX.writeFile(workbook, EXCEL_PATH);
+        }
+        console.log('✅ Dados salvos com sucesso');
         return true;
     } catch (error) {
-        console.error('Error writing to spreadsheet:', error);
+        console.error('❌ Erro ao salvar dados:', error);
         return false;
     }
 }
@@ -157,11 +199,18 @@ app.get('/login', (req, res) => {
 
 app.post('/login', (req, res) => {
     const { email, password } = req.body;
+    console.log('[PRODUCTION DEBUG] Tentativa de login para:', email);
+    console.log('[PRODUCTION DEBUG] IP do cliente:', req.ip);
+    console.log('[PRODUCTION DEBUG] User-Agent:', req.get('User-Agent'));
+    console.log('[PRODUCTION DEBUG] Password length:', password?.length);
+    
     const user = userRepository.findByEmail(email);
-    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-    const userAgent = req.get('User-Agent') || '';
+    console.log('[PRODUCTION DEBUG] Usuário encontrado:', user ? { id: user.id, email: user.email, role: user.role } : 'null');
     
     if (user && User.comparePassword(password, user.password)) {
+        console.log('[PRODUCTION DEBUG] Login bem-sucedido para:', email);
+        console.log('[PRODUCTION DEBUG] Configurando sessão para usuário:', { id: user.id, email: user.email, role: user.role });
+        
         req.session.user = {
             id: user.id,
             email: user.email,
@@ -169,32 +218,52 @@ app.post('/login', (req, res) => {
             name: user.name
         };
         
-        // Log de acesso bem-sucedido
-        auditLogger.logAccess('LOGIN_SUCCESS', user.email, clientIP, userAgent);
+        console.log('[PRODUCTION DEBUG] Sessão configurada:', {
+            sessionId: req.sessionID,
+            userId: req.session.user.id,
+            userEmail: req.session.user.email,
+            userRole: req.session.user.role
+        });
         
-        res.redirect('/dashboard');
+        // Salvar sessão explicitamente antes do redirect
+        req.session.save((err) => {
+            if (err) {
+                console.error('[PRODUCTION DEBUG] Erro ao salvar sessão:', err);
+                console.error('[PRODUCTION DEBUG] Stack trace:', err.stack);
+                res.render('login', { error: 'Session error. Please try again.' });
+            } else {
+                console.log('[PRODUCTION DEBUG] Sessão salva com sucesso, redirecionando para dashboard');
+                console.log('[PRODUCTION DEBUG] Redirecionando para: /dashboard');
+                res.redirect('/dashboard');
+            }
+        });
     } else {
-        // Log de tentativa de login falhada
-        auditLogger.logAccess('LOGIN_FAILED', email || 'unknown', clientIP, userAgent);
-        
+        console.log('[PRODUCTION DEBUG] Login falhou para:', email);
+        console.log('[PRODUCTION DEBUG] Usuário existe:', !!user);
+        console.log('[PRODUCTION DEBUG] Senha válida:', user ? User.comparePassword(password, user.password) : false);
         res.render('login', { error: 'Invalid email or password' });
     }
 });
 
 app.get('/logout', (req, res) => {
-    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-    const userEmail = req.session.user ? req.session.user.email : 'unknown';
-    
-    // Log de logout
-    auditLogger.logAccess('LOGOUT', userEmail, clientIP);
-    
     req.session.destroy();
     res.redirect('/login');
 });
 
 // Rota principal - Dashboard
 app.get('/dashboard', requireAuth, async (req, res) => {
-    const data = await readExcelData();
+    console.log('[PRODUCTION DEBUG] Acessando dashboard para usuário:', req.session.user?.email);
+    console.log('[PRODUCTION DEBUG] Role do usuário:', req.session.user?.role);
+    console.log('[PRODUCTION DEBUG] Session ID:', req.sessionID);
+    console.log('[PRODUCTION DEBUG] IP do cliente:', req.ip);
+    
+    try {
+        console.log('[PRODUCTION DEBUG] Carregando dados para o dashboard...');
+        console.log('[PRODUCTION DEBUG] Ambiente:', NODE_ENV);
+        console.log('[PRODUCTION DEBUG] Google Drive Service disponível:', !!googleDriveService);
+        
+        const data = await readExcelData();
+        console.log('[PRODUCTION DEBUG] Dados carregados:', data.length, 'registros');
     
     // Filtrar dados por usuário (apenas registros que eles criaram, exceto admin)
     let filteredData = data;
@@ -272,11 +341,29 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         monthlyStats
     };
     
-    res.render('dashboard', {
-        user: req.session.user,
-        stats,
-        data: filteredData
-    });
+        console.log('[PRODUCTION DEBUG] Renderizando dashboard com stats:', {
+            totalRecords: stats.totalRecords,
+            categorias: Object.keys(stats.categoryStats).length,
+            responsaveis: Object.keys(stats.responsibleStats).length,
+            userEmail: req.session.user?.email,
+            userRole: req.session.user?.role
+        });
+        
+        res.render('dashboard', {
+            user: req.session.user,
+            stats,
+            data: filteredData
+        });
+        
+        console.log('[PRODUCTION DEBUG] Dashboard renderizado com sucesso');
+    } catch (error) {
+        console.error('[PRODUCTION DEBUG] Erro na rota dashboard:', error);
+        console.error('[PRODUCTION DEBUG] Stack trace:', error.stack);
+        res.status(500).render('error', { 
+            error: 'Erro interno do servidor',
+            user: req.session.user 
+        });
+    }
 });
 
 app.get('/form', requireAuth, requireManagerOrAdmin, (req, res) => {
@@ -289,9 +376,6 @@ app.get('/bulk-upload', requireAuth, requireManagerOrAdmin, (req, res) => {
 
 app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => {
     const data = await readExcelData();
-    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-    const timestamp = new Date();
-    
     const newRecord = {
         'Name': req.body.name,
         'Website': req.body.website,
@@ -312,19 +396,13 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         'Comments': req.body.comments,
         'Created_By_User_ID': req.session.user.id,
         'Created_By_User_Name': req.session.user.name,
-        'Created_At': timestamp.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-        'Updated_At': '',
-        'Updated_By_User_Name': '',
-        'Updated_By_User_ID': ''
+        'Responsable': req.session.user.name,
+        'Created_At': new Date().toISOString()
     };
     
     data.push(newRecord);
     
     if (await writeExcelData(data)) {
-        // Log da atividade de criação
-        auditLogger.logActivity('CREATE_RECORD', req.session.user.email, 'Supplier/Distributor', 
-            `Nome: ${req.body.name}, Categoria: ${req.body.categoria}`, clientIP);
-        
         res.json({ success: true, message: 'Record added successfully!' });
     } else {
         res.json({ success: false, message: 'Error adding record.' });
@@ -416,11 +494,6 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
         const success = userRepository.delete(userId);
         
         if (success) {
-            // Log da atividade de exclusão de usuário
-            const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-            auditLogger.logActivity('DELETE_USER', req.session.user.email, 'User', 
-                `Usuário ID ${userId} excluído`, clientIP);
-            
             res.json({ success: true, message: 'User deleted successfully' });
         } else {
             res.json({ success: false, message: 'User not found' });
@@ -428,100 +501,6 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
     } catch (error) {
         console.error('Error deleting user:', error);
         res.json({ success: false, message: 'Internal server error' });
-    }
-});
-
-// Rota para página de logs (apenas administradores)
-app.get('/logs', requireAuth, requireAdmin, (req, res) => {
-    try {
-        const { logType, userFilter, startDate, endDate, export: exportCsv } = req.query;
-        
-        // Ler logs de acesso e atividade
-        const accessLogs = auditLogger.getAccessLogs();
-        const activityLogs = auditLogger.getActivityLogs();
-        
-        // Combinar e ordenar logs
-        let allLogs = [];
-        
-        // Processar logs de acesso
-        accessLogs.forEach(log => {
-            allLogs.push({
-                timestamp: log.timestamp,
-                type: 'ACCESS',
-                user: log.username,
-                action: log.action,
-                details: log.userAgent || '',
-                ip: log.ip || 'N/A'
-            });
-        });
-        
-        // Processar logs de atividade
-        activityLogs.forEach(log => {
-            allLogs.push({
-                timestamp: log.timestamp,
-                type: 'ACTIVITY',
-                user: log.username,
-                action: log.action,
-                details: log.details || '',
-                ip: log.ip || 'N/A'
-            });
-        });
-        
-        // Ordenar por timestamp (mais recente primeiro)
-        allLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        
-        // Aplicar filtros
-        if (logType && logType !== 'all') {
-            if (logType === 'access') {
-                allLogs = allLogs.filter(log => log.type === 'ACCESS');
-            } else if (logType === 'activity') {
-                allLogs = allLogs.filter(log => log.type === 'ACTIVITY');
-            }
-        }
-        
-        if (userFilter) {
-            allLogs = allLogs.filter(log => 
-                log.user.toLowerCase().includes(userFilter.toLowerCase())
-            );
-        }
-        
-        if (startDate) {
-            const start = new Date(startDate);
-            allLogs = allLogs.filter(log => new Date(log.timestamp) >= start);
-        }
-        
-        if (endDate) {
-            const end = new Date(endDate + 'T23:59:59');
-            allLogs = allLogs.filter(log => new Date(log.timestamp) <= end);
-        }
-        
-        // Exportar CSV se solicitado
-        if (exportCsv === 'csv') {
-            const csv = 'Data/Hora,Tipo,Usuário,Ação,Detalhes,IP\n' + 
-                allLogs.map(log => 
-                    `"${log.timestamp}","${log.type}","${log.user}","${log.action}","${log.details}","${log.ip}"`
-                ).join('\n');
-            
-            res.setHeader('Content-Type', 'text/csv');
-            res.setHeader('Content-Disposition', 'attachment; filename="logs_sistema.csv"');
-            return res.send(csv);
-        }
-        
-        // Limitar a 1000 registros para performance
-        allLogs = allLogs.slice(0, 1000);
-        
-        res.render('logs', {
-            user: req.session.user,
-            logs: allLogs,
-            filters: { logType, userFilter, startDate, endDate }
-        });
-        
-    } catch (error) {
-        console.error('Erro ao carregar logs:', error);
-        res.render('error', {
-            user: req.session.user,
-            message: 'Erro ao carregar logs do sistema'
-        });
     }
 });
 
@@ -674,24 +653,10 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
         zipCode
     } = req.body;
     
-    const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-    const timestamp = new Date();
-    const originalName = data[recordId].Name;
-    const changedFields = [];
-    
-    // Atualizar apenas os campos fornecidos e registrar mudanças
-    if (name !== undefined && data[recordId].Name !== name) {
-        data[recordId].Name = name;
-        changedFields.push(`Nome: ${originalName} → ${name}`);
-    }
-    if (website !== undefined && data[recordId].Website !== website) {
-        changedFields.push(`Website: ${data[recordId].Website} → ${website}`);
-        data[recordId].Website = website;
-    }
-    if (categoria !== undefined && data[recordId]['CATEGORÍA'] !== categoria) {
-        changedFields.push(`Categoria: ${data[recordId]['CATEGORÍA']} → ${categoria}`);
-        data[recordId]['CATEGORÍA'] = categoria;
-    }
+    // Atualizar apenas os campos fornecidos
+    if (name !== undefined) data[recordId].Name = name;
+    if (website !== undefined) data[recordId].Website = website;
+    if (categoria !== undefined) data[recordId]['CATEGORÍA'] = categoria;
     if (accountRequestStatus !== undefined) data[recordId]['Account Request Status'] = accountRequestStatus;
     if (generalStatus !== undefined) data[recordId]['General Status'] = generalStatus;
     if (responsable !== undefined) data[recordId].Responsable = responsable;
@@ -704,11 +669,6 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     if (country !== undefined) data[recordId].Country = country;
     if (zipCode !== undefined) data[recordId]['Zip Code'] = zipCode;
     
-    // Atualizar timestamp de modificação
-    data[recordId]['Updated_At'] = timestamp.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-    data[recordId]['Updated_By_User_Name'] = user.name;
-    data[recordId]['Updated_By_User_ID'] = user.id;
-    
     // Salvar alterações na planilha Excel
     const saveSuccess = await writeExcelData(data);
     if (!saveSuccess) {
@@ -716,12 +676,6 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
             success: false, 
             message: 'Error saving changes to spreadsheet. Please try again.' 
         });
-    }
-    
-    // Log da atividade de edição
-    if (changedFields.length > 0) {
-        auditLogger.logActivity('UPDATE_RECORD', user.email, 'Supplier/Distributor', 
-            `ID: ${recordId}, ${changedFields.join(', ')}`, clientIP);
     }
     
     res.json({ success: true, message: 'Record updated successfully!' });
@@ -894,12 +848,6 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
         if (recordsAdded > 0) {
             try {
                 await writeExcelData(existingData);
-                
-                // Log da atividade de upload em lote
-                const clientIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
-                auditLogger.logActivity('BULK_UPLOAD', req.session.user.email, 'Supplier/Distributor', 
-                    `${recordsAdded} registros adicionados via upload Excel`, clientIP);
-                
             } catch (error) {
                 console.error('Error writing to Excel:', error);
                 return res.status(500).json({ 
@@ -935,31 +883,64 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
 // Inicializar banco de dados e servidor
 async function startServer() {
     try {
-        // Inicializar banco de dados se estiver em produção
-        if (NODE_ENV === 'production' && process.env.DATABASE_URL) {
-            console.log('🔄 Inicializando banco de dados PostgreSQL...');
-            await initializeDatabase();
-            console.log('✅ Banco de dados inicializado com sucesso!');
+        // Em produção, verificar se Google Drive está configurado
+        if (NODE_ENV === 'production') {
+            if (process.env.GOOGLE_DRIVE_FILE_ID) {
+                console.log('🔄 Verificando conexão com Google Drive...');
+                try {
+                    await googleDriveService.refreshCache();
+                    console.log('✅ Google Drive configurado com sucesso!');
+                } catch (error) {
+                    console.warn('⚠️ Aviso: Erro ao conectar com Google Drive:', error.message);
+                }
+            } else {
+                console.warn('⚠️ GOOGLE_DRIVE_FILE_ID não configurado. Usando modo local.');
+            }
         }
         
         app.listen(PORT, '0.0.0.0', () => {
-            console.log(`🚀 Servidor LOKOK rodando na porta ${PORT}`);
-            console.log(`📊 Ambiente: ${NODE_ENV}`);
+            console.log(`🚀 [PRODUCTION DEBUG] Servidor LOKOK rodando na porta ${PORT}`);
+            console.log(`📊 [PRODUCTION DEBUG] Ambiente: ${NODE_ENV}`);
+            console.log(`📊 [PRODUCTION DEBUG] Timestamp: ${new Date().toISOString()}`);
+            
+            if (NODE_ENV === 'production' && googleDriveService) {
+                console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Google Drive');
+                console.log('🌐 [PRODUCTION DEBUG] URL de produção: https://lokok2-production.up.railway.app');
+            } else {
+                console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Arquivo Excel local');
+            }
             
             if (NODE_ENV === 'development') {
-                console.log(`\n🌐 Acesse: http://localhost:${PORT}`);
-                console.log(`📊 Dashboard: http://localhost:${PORT}/dashboard`);
-                console.log('\n👤 Usuários de teste:');
-                console.log('Admin: hubert / admin123');
-                console.log('Gerente: nacho / gerente123');
-            } else {
-                console.log('\n👤 Usuários padrão criados:');
-                console.log('Admin: hubert / admin123');
-                console.log('Gerente: nacho / gerente123');
+                console.log(`\n🌐 [PRODUCTION DEBUG] Acesse: http://localhost:${PORT}`);
+                console.log(`📊 [PRODUCTION DEBUG] Dashboard: http://localhost:${PORT}/dashboard`);
+            }
+            
+            console.log('\n👤 [PRODUCTION DEBUG] Usuários disponíveis:');
+            console.log('Admin: admin@lokok.com / admin123');
+            console.log('Gerente: manager@lokok.com / manager123');
+            
+            // Verificar se users.json existe
+            const usersPath = path.join(__dirname, 'data', 'users.json');
+            console.log(`📁 [PRODUCTION DEBUG] Verificando users.json em: ${usersPath}`);
+            
+            try {
+                if (fs.existsSync(usersPath)) {
+                    const usersData = fs.readFileSync(usersPath, 'utf8');
+                    const users = JSON.parse(usersData);
+                    console.log(`✅ [PRODUCTION DEBUG] users.json encontrado com ${users.length} usuários`);
+                    users.forEach((user, index) => {
+                        console.log(`👤 [PRODUCTION DEBUG] Usuário ${index + 1}: ${user.email} (${user.role})`);
+                    });
+                } else {
+                    console.error('❌ [PRODUCTION DEBUG] users.json NÃO ENCONTRADO!');
+                }
+            } catch (error) {
+                console.error('❌ [PRODUCTION DEBUG] Erro ao ler users.json:', error);
             }
         });
     } catch (error) {
-        console.error('❌ Error initializing server:', error);
+        console.error('❌ [PRODUCTION DEBUG] Erro ao inicializar servidor:', error);
+        console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
         process.exit(1);
     }
 }

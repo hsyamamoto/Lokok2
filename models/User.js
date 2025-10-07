@@ -1,4 +1,6 @@
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 
 class User {
     constructor(id, email, password, role, name, createdBy = null) {
@@ -37,6 +39,7 @@ class User {
         return {
             id: this.id,
             email: this.email,
+            password: this.password,
             role: this.role,
             name: this.name,
             createdBy: this.createdBy,
@@ -46,16 +49,73 @@ class User {
     }
 }
 
-// Base de dados em memória para usuários
+// Base de dados em memória para usuários com persistência em arquivo JSON
 class UserRepository {
     constructor() {
         this.users = [];
         this.nextId = 1;
-        this.initializeDefaultUsers();
+        this.usersFilePath = path.join(__dirname, '..', 'data', 'users.json');
+        this.loadUsers();
     }
 
-    // Inicializar usuários padrão
+    // Carregar usuários do arquivo JSON
+    loadUsers() {
+        console.log('📂 Iniciando carregamento de usuários...');
+        console.log('📍 Caminho do arquivo:', this.usersFilePath);
+        
+        try {
+            // Criar diretório data se não existir
+            const dataDir = path.dirname(this.usersFilePath);
+            console.log('📁 Diretório de dados:', dataDir);
+            
+            if (!fs.existsSync(dataDir)) {
+                console.log('🔨 Criando diretório de dados...');
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+
+            if (fs.existsSync(this.usersFilePath)) {
+                console.log('✅ Arquivo users.json encontrado, carregando...');
+                const data = fs.readFileSync(this.usersFilePath, 'utf8');
+                const userData = JSON.parse(data);
+                this.users = userData.users.map(u => {
+                    const user = new User(u.id, u.email, u.password, u.role, u.name, u.createdBy);
+                    user.createdAt = new Date(u.createdAt);
+                    user.isActive = u.isActive;
+                    return user;
+                });
+                this.nextId = userData.nextId || 1;
+                console.log(`📊 ${this.users.length} usuários carregados do arquivo`);
+            } else {
+                console.log('❌ Arquivo users.json não encontrado, inicializando usuários padrão...');
+                this.initializeDefaultUsers();
+                this.saveUsers();
+                console.log('💾 Arquivo users.json criado com usuários padrão');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar usuários:', error);
+            console.log('🔄 Fallback: inicializando usuários padrão...');
+            this.initializeDefaultUsers();
+            this.saveUsers();
+        }
+    }
+
+    // Salvar usuários no arquivo JSON
+    saveUsers() {
+        try {
+            const data = {
+                users: this.users.map(u => u.toJSON()),
+                nextId: this.nextId
+            };
+            fs.writeFileSync(this.usersFilePath, JSON.stringify(data, null, 2));
+        } catch (error) {
+            console.error('Erro ao salvar usuários:', error);
+        }
+    }
+
+    // Inicializar usuários padrão (apenas se não existir arquivo)
     initializeDefaultUsers() {
+        console.log('🔧 Inicializando usuários padrão...');
+        
         // Usuários de teste originais
         this.users.push(new User(
             this.nextId++,
@@ -64,6 +124,7 @@ class UserRepository {
             'admin',
             'Admin'
         ));
+        console.log('✅ Usuário admin@mylokok.com criado');
 
         this.users.push(new User(
             this.nextId++,
@@ -72,6 +133,7 @@ class UserRepository {
             'operador',
             'Operador'
         ));
+        console.log('✅ Usuário operador@mylokok.com criado');
 
         this.users.push(new User(
             this.nextId++,
@@ -80,6 +142,7 @@ class UserRepository {
             'gerente',
             'Gerente'
         ));
+        console.log('✅ Usuário gerente@mylokok.com criado');
 
         // Adicionar usuário Nacho
         this.users.push(new User(
@@ -89,6 +152,7 @@ class UserRepository {
             'gerente',
             'Nacho'
         ));
+        console.log('✅ Usuário nacho@mylokok.com criado');
 
         // Adicionar usuários de teste conforme documentação
         this.users.push(new User(
@@ -98,6 +162,7 @@ class UserRepository {
             'admin',
             'Hubert'
         ));
+        console.log('✅ Usuário hubert criado');
 
         this.users.push(new User(
             this.nextId++,
@@ -106,6 +171,9 @@ class UserRepository {
             'gerente',
             'Nacho'
         ));
+        console.log('✅ Usuário nacho criado');
+        
+        console.log(`🎯 Total de usuários criados: ${this.users.length}`);
     }
 
     // Buscar usuário por email
@@ -139,6 +207,7 @@ class UserRepository {
             userData.createdBy
         );
         this.users.push(user);
+        this.saveUsers();
         return user;
     }
 
@@ -153,6 +222,7 @@ class UserRepository {
                 user.password = User.hashPassword(userData.password);
             }
             user.role = userData.role || user.role;
+            this.saveUsers();
             return user;
         }
         return null;
@@ -163,6 +233,7 @@ class UserRepository {
         const user = this.findById(id);
         if (user) {
             user.isActive = false;
+            this.saveUsers();
             return true;
         }
         return false;
@@ -173,6 +244,7 @@ class UserRepository {
         const userIndex = this.users.findIndex(user => user.id === id);
         if (userIndex !== -1) {
             this.users.splice(userIndex, 1);
+            this.saveUsers();
             return true;
         }
         return false;

@@ -17,6 +17,12 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // Configuração do middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Configurar trust proxy para Railway
+if (NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+    console.log('🔧 [PRODUCTION DEBUG] Trust proxy configurado para produção');
+}
+
 app.use(cookieParser());
 app.use(session({
     secret: process.env.SESSION_SECRET || 'lokok-secret-key-2024',
@@ -24,9 +30,18 @@ app.use(session({
     saveUninitialized: false,
     cookie: { 
         secure: NODE_ENV === 'production', 
+        httpOnly: true,
+        sameSite: NODE_ENV === 'production' ? 'lax' : 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 horas
     }
 }));
+
+console.log('🔧 [PRODUCTION DEBUG] Configuração de sessão:', {
+    secure: NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: NODE_ENV === 'production' ? 'lax' : 'lax',
+    trustProxy: NODE_ENV === 'production'
+});
 
 // Servir arquivos estáticos
 app.use(express.static('public'));

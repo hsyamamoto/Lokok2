@@ -44,9 +44,11 @@ class GoogleDriveService {
      */
     async downloadSpreadsheet() {
         try {
-            console.log('📥 Tentando baixar planilha do Google Drive...');
+            console.log('📥 [PRODUCTION DEBUG] Tentando baixar planilha do Google Drive...');
+            console.log('📥 [PRODUCTION DEBUG] File ID:', this.fileId);
             
             const downloadUrl = this.getDirectDownloadUrl();
+            console.log('📥 [PRODUCTION DEBUG] Download URL:', downloadUrl);
             
             const response = await axios({
                 method: 'GET',
@@ -55,8 +57,41 @@ class GoogleDriveService {
                 timeout: 30000, // 30 segundos
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
+                },
+                maxRedirects: 5
             });
+
+            console.log('📥 [PRODUCTION DEBUG] Response status:', response.status);
+            console.log('📥 [PRODUCTION DEBUG] Response headers:', response.headers['content-type']);
+            console.log('📥 [PRODUCTION DEBUG] Response size:', response.data.length);
+            
+            // Verificar se a resposta é HTML (página de confirmação do Google Drive)
+            const responseText = response.data.toString('utf8', 0, 500);
+            if (responseText.includes('<html') || responseText.includes('<!DOCTYPE')) {
+                console.log('⚠️ [PRODUCTION DEBUG] Resposta é HTML, tentando extrair link de download...');
+                
+                // Tentar extrair o link de download real da página HTML
+                const confirmMatch = responseText.match(/href="([^"]*&confirm=[^"]*)"/i);
+                if (confirmMatch) {
+                    const confirmUrl = confirmMatch[1].replace(/&amp;/g, '&');
+                    console.log('📥 [PRODUCTION DEBUG] Tentando URL de confirmação:', confirmUrl);
+                    
+                    const confirmResponse = await axios({
+                        method: 'GET',
+                        url: confirmUrl,
+                        responseType: 'arraybuffer',
+                        timeout: 30000,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        }
+                    });
+                    
+                    response.data = confirmResponse.data;
+                    console.log('✅ [PRODUCTION DEBUG] Download com confirmação bem-sucedido');
+                } else {
+                    throw new Error('Não foi possível extrair link de download da página de confirmação');
+                }
+            }
 
             // Criar diretório data se não existir
             const dataDir = path.dirname(this.localCachePath);
@@ -67,7 +102,8 @@ class GoogleDriveService {
             // Salvar arquivo localmente
             fs.writeFileSync(this.localCachePath, response.data);
             
-            console.log('✅ Planilha baixada e salva em cache');
+            console.log('✅ [PRODUCTION DEBUG] Planilha baixada e salva em cache');
+            console.log('✅ [PRODUCTION DEBUG] Arquivo salvo em:', this.localCachePath);
             return this.localCachePath;
             
         } catch (error) {
@@ -125,19 +161,50 @@ class GoogleDriveService {
      */
     async readSpreadsheetData() {
         try {
+            console.log('📖 [PRODUCTION DEBUG] Iniciando leitura dos dados da planilha...');
             const spreadsheetPath = await this.getSpreadsheetPath();
             
-            console.log('📖 Lendo dados da planilha...');
+            console.log('📖 [PRODUCTION DEBUG] Caminho da planilha:', spreadsheetPath);
+            console.log('📖 [PRODUCTION DEBUG] Arquivo existe:', fs.existsSync(spreadsheetPath));
+            
+            if (fs.existsSync(spreadsheetPath)) {
+                const stats = fs.statSync(spreadsheetPath);
+                console.log('📖 [PRODUCTION DEBUG] Tamanho do arquivo:', stats.size, 'bytes');
+                
+                // Verificar se o arquivo não está vazio
+                if (stats.size === 0) {
+                    throw new Error('Arquivo da planilha está vazio');
+                }
+                
+                // Verificar se o arquivo é realmente um Excel válido
+                const buffer = fs.readFileSync(spreadsheetPath);
+                const header = buffer.toString('utf8', 0, 100);
+                console.log('📖 [PRODUCTION DEBUG] Header do arquivo:', header.substring(0, 50));
+                
+                if (header.includes('<html') || header.includes('<!DOCTYPE')) {
+                    throw new Error('Arquivo contém HTML em vez de dados Excel');
+                }
+            }
+            
+            console.log('📖 [PRODUCTION DEBUG] Lendo arquivo Excel...');
             const workbook = XLSX.readFile(spreadsheetPath);
+            console.log('📖 [PRODUCTION DEBUG] Sheets disponíveis:', workbook.SheetNames);
+            
             const sheetName = workbook.SheetNames[0];
+            console.log('📖 [PRODUCTION DEBUG] Usando sheet:', sheetName);
+            
             const worksheet = workbook.Sheets[sheetName];
             const data = XLSX.utils.sheet_to_json(worksheet);
             
-            console.log(`✅ ${data.length} registros carregados da planilha`);
+            console.log(`✅ [PRODUCTION DEBUG] ${data.length} registros carregados da planilha`);
+            if (data.length > 0) {
+                console.log('📖 [PRODUCTION DEBUG] Primeiro registro:', JSON.stringify(data[0]));
+            }
             return data;
             
         } catch (error) {
-            console.error('Erro ao ler dados da planilha:', error);
+            console.error('❌ [PRODUCTION DEBUG] Erro ao ler dados da planilha:', error.message);
+            console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
             throw error;
         }
     }

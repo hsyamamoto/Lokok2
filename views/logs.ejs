@@ -40,6 +40,24 @@
             </div>
         </div>
 
+        <!-- Search Debug Panel -->
+        <% if (typeof debugCounts !== 'undefined' && debugCounts) { %>
+        <div class="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mb-6">
+            <div class="flex items-start">
+                <i class="fas fa-info-circle text-yellow-500 mr-3 mt-1"></i>
+                <div class="text-sm text-yellow-900">
+                    <div class="font-semibold mb-1">Search Debug (última busca)</div>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>resultsQuery count:</strong> <%= debugCounts.resultsQueryCount %></li>
+                        <li><strong>resultsAdvanced buyer alias count:</strong> <%= typeof debugCounts.resultsAdvancedBuyerAliasCount === 'number' ? debugCounts.resultsAdvancedBuyerAliasCount : 'N/A' %></li>
+                        <li><strong>Combined results count:</strong> <%= debugCounts.combinedResultsCount %></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-2 text-xs text-yellow-700">Esses números são salvos da última execução de /search. Faça uma nova busca para atualizar.</div>
+        </div>
+        <% } %>
+
         <!-- Filters -->
         <div class="bg-white shadow rounded-lg mb-6">
             <div class="px-6 py-4 border-b border-gray-200">
@@ -143,7 +161,7 @@
                                 <% } else if (log.action === 'LOGOUT') { %>
                                     <span class="text-gray-600"><i class="fas fa-sign-out-alt mr-1"></i>Logout</span>
                                 <% } else if (log.action === 'CREATE_RECORD') { %>
-                                    <span class="text-blue-600"><i class="fas fa-plus-circle mr-1"></i>Criar</span>
+                                    <span class="text-blue-600"><i class="fas a-plus-circle mr-1"></i>Criar</span>
                                 <% } else if (log.action === 'UPDATE_RECORD') { %>
                                     <span class="text-yellow-600"><i class="fas fa-edit mr-1"></i>Editar</span>
                                 <% } else if (log.action === 'DELETE_USER') { %>
@@ -218,14 +236,8 @@
                 }
             }
             
-            params.append('export', 'csv');
-            window.location.href = '/logs?' + params.toString();
+            window.location.href = '/logs/export?' + params.toString();
         }
-        
-        // Auto-refresh every 30 seconds
-        setTimeout(() => {
-            location.reload();
-        }, 30000);
     </script>
 </body>
 </html>

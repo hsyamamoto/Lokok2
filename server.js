@@ -290,6 +290,42 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             return responsible.toLowerCase().includes(userName.toLowerCase());
         });
     }
+
+    // Ler parâmetros de ordenação/filtro do relatório mensal e filtro de datas dos recentes
+    const { monthlySort, monthlyStart, monthlyEnd, recentStart, recentEnd } = req.query;
+
+    // Preparar dados com data parseada para uso em Recent Records e estatísticas
+    let processedData = filteredData.map(record => {
+        let parsedDate = null;
+        const dateValue = record['DATE'];
+        try {
+            if (dateValue !== undefined && dateValue !== null && String(dateValue).trim() !== '') {
+                if (typeof dateValue === 'number' && dateValue > 0) {
+                    parsedDate = new Date((dateValue - 25569) * 86400 * 1000);
+                } else if (typeof dateValue === 'string') {
+                    const d = new Date(dateValue);
+                    if (!isNaN(d)) parsedDate = d;
+                }
+            }
+        } catch (e) {
+            // Ignorar erros de data individual
+        }
+        return { ...record, _parsedDate: parsedDate };
+    });
+
+    // Aplicar filtro por data nos registros recentes (opcional)
+    let recentFilteredData = processedData;
+    if (recentStart || recentEnd) {
+        const startDate = recentStart ? new Date(recentStart) : null;
+        const endDate = recentEnd ? new Date(recentEnd) : null;
+        if (endDate) endDate.setHours(23, 59, 59, 999);
+        recentFilteredData = processedData.filter(rec => {
+            if (!rec._parsedDate) return false; // se filtrar por data, ignorar sem data
+            if (startDate && rec._parsedDate < startDate) return false;
+            if (endDate && rec._parsedDate > endDate) return false;
+            return true;
+        });
+    }
     
     // Processar dados para estatísticas
     const categoryStats = {};
@@ -348,6 +384,32 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
         }
     });
+
+    // Ordenação e filtro de período para relatório mensal
+    let sortedMonthlyEntries = Object.entries(monthlyStats);
+    if (monthlyStart || monthlyEnd) {
+        sortedMonthlyEntries = sortedMonthlyEntries.filter(([key]) => {
+            if (key === 'Sem data') return false; // excluir "Sem data" quando filtrar por período
+            const afterStart = monthlyStart ? key >= monthlyStart : true;
+            const beforeEnd = monthlyEnd ? key <= monthlyEnd : true;
+            return afterStart && beforeEnd;
+        });
+    }
+    switch (monthlySort) {
+        case 'period_asc':
+            sortedMonthlyEntries.sort((a, b) => a[0].localeCompare(b[0]));
+            break;
+        case 'period_desc':
+            sortedMonthlyEntries.sort((a, b) => b[0].localeCompare(a[0]));
+            break;
+        case 'count_asc':
+            sortedMonthlyEntries.sort((a, b) => a[1] - b[1]);
+            break;
+        case 'count_desc':
+        default:
+            sortedMonthlyEntries.sort((a, b) => b[1] - a[1]);
+            break;
+    }
     
     const stats = {
         totalRecords: filteredData.length,
@@ -367,7 +429,13 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         res.render('dashboard', {
             user: req.session.user,
             stats,
-            data: filteredData
+            data: recentFilteredData,
+            sortedMonthlyEntries,
+            monthlySort: monthlySort || 'period_desc',
+            monthlyStart: monthlyStart || '',
+            monthlyEnd: monthlyEnd || '',
+            recentStart: recentStart || '',
+            recentEnd: recentEnd || ''
         });
         
         console.log('[PRODUCTION DEBUG] Dashboard renderizado com sucesso');
@@ -524,6 +592,39 @@ app.get('/search', requireAuth, async (req, res) => {
     const { query, type } = req.query;
     let data = await readExcelData();
     
+    // Helpers definidos ANTES do uso para evitar erros de TDZ
+    const normalize = (s) => ((s || '') + '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ').trim();
+
+    const getField = (record, keys) => {
+        // Busca robusta: tenta casar nomes de campos ignorando acentos, caixa, espaços e pontuação
+        const normalizeKey = (s) => ((s || '') + '')
+            .toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '')
+            .trim();
+        const wanted = new Set(keys.map(k => normalizeKey(k)));
+        for (const k of Object.keys(record)) {
+            const nk = normalizeKey(k);
+            if (wanted.has(nk)) {
+                const v = record[k];
+                if (v !== undefined && v !== null && ((v + '').trim().length > 0)) {
+                    return v;
+                }
+            }
+        }
+        // fallback: tentativa direta com as chaves fornecidas
+        for (const k of keys) {
+            const v = record[k];
+            if (v !== undefined && v !== null && ((v + '').trim().length > 0)) {
+                return v;
+            }
+        }
+        return '';
+    };
+
     // Adicionar índice real a cada registro
     data = data.map((record, index) => ({
         ...record,
@@ -535,45 +636,193 @@ app.get('/search', requireAuth, async (req, res) => {
         // Não filtrar os dados, mas marcar quais são do usuário para controle de exibição
         const userName = req.session.user.name;
         data = data.map(record => {
-            const responsible = record['Responsable'] || '';
-            const isResponsible = responsible.toLowerCase().includes(userName.toLowerCase());
+            const responsible = getField(record, ['Responsable','Manager','Buyer']);
+            const isResponsible = ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
             return {
                 ...record,
                 _isResponsible: isResponsible
             };
         });
     } else if (req.session.user.role !== 'admin') {
-        // Para outros usuários não-admin, filtrar por nome no campo Responsable
+        // Para outros usuários não-admin:
+        // Se houver query OU filtros avançados (buyer/category/accountStatus/status), permitir visualizar todos os registros
+        // porém com campos limitados (marcando _isResponsible), semelhante ao comportamento dos gerentes.
         const userName = req.session.user.name;
-        data = data.filter(record => {
-            const responsible = record['Responsable'] || '';
-            return responsible.toLowerCase().includes(userName.toLowerCase());
-        });
+        const hasAnyFilterOrQuery = (
+            (typeof req.query.query === 'string' && req.query.query.trim().length > 0) ||
+            ['buyer','category','accountStatus','status'].some(
+                k => typeof req.query[k] === 'string' && req.query[k].trim().length > 0
+            )
+        );
+        if (hasAnyFilterOrQuery) {
+            data = data.map(record => {
+                const responsible = getField(record, ['Responsable','Manager','Buyer']);
+                const isResponsible = ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
+                return {
+                    ...record,
+                    _isResponsible: isResponsible
+                };
+            });
+        } else {
+            // Sem query e sem filtro avançado, mostrar somente registros onde o usuário é responsável
+            data = data.filter(record => {
+                const responsible = getField(record, ['Responsable','Manager','Buyer']);
+                return ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
+            });
+        }
     }
     
-    let results = [];
-    if (query) {
-        results = data.filter(record => {
+    // Novos filtros: Account Status, Buyer, Category e Status + ordenação
+    const { accountStatus = '', buyer = '', category = '', status = '', sortBy = '', sortDirection = 'asc', view = 'grid' } = req.query;
+    console.log('[SEARCH DEBUG] Params:', { query, type, accountStatus, buyer, category, status, sortBy, sortDirection, view });
+
+    // Normalização e getField já declarados acima no início da rota /search para evitar TDZ e duplicações.
+
+    const fieldStatusName = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
+
+    const hasAdvancedFilters = [accountStatus, buyer, category, status].some(v => v && v.trim().length > 0);
+    console.log('[SEARCH DEBUG] Role:', req.session.user.role, 'hasAdvancedFilters:', hasAdvancedFilters);
+
+    // Resultado do termo de busca (query)
+    let resultsQuery = [];
+    if (query && (query + '').trim()) {
+        const q = normalize(query);
+        // Aliases para nomes próprios (ex.: Nacho -> Ignacio)
+        const qAliases = [q, ...(q === 'nacho' ? ['ignacio'] : [])];
+        resultsQuery = data.filter(record => {
+            const nameNorm = normalize(record.Name);
+            const webNorm = normalize(record.Website);
+            const catNorm = normalize(getField(record, ['CATEGORÍA','Category']));
+            const mgrNorm = normalize(getField(record, ['Responsable','Manager','Buyer']));
             switch (type) {
                 case 'name':
-                    return record.Name && record.Name.toLowerCase().includes(query.toLowerCase());
+                    return !!nameNorm && nameNorm.includes(q);
                 case 'website':
-                    return record.Website && record.Website.toLowerCase().includes(query.toLowerCase());
+                    return !!webNorm && webNorm.includes(q);
                 case 'categoria':
-                    return record['CATEGORÍA'] && record['CATEGORÍA'].toLowerCase().includes(query.toLowerCase());
+                    return !!catNorm && catNorm.includes(q);
+                case 'manager':
+                    return !!mgrNorm && qAliases.some(a => mgrNorm.includes(a));
                 default:
-                    return (record.Name && record.Name.toLowerCase().includes(query.toLowerCase())) ||
-                           (record.Website && record.Website.toLowerCase().includes(query.toLowerCase())) ||
-                           (record['CATEGORÍA'] && record['CATEGORÍA'].toLowerCase().includes(query.toLowerCase()));
+                    return (!!nameNorm && nameNorm.includes(q)) ||
+                           (!!webNorm && webNorm.includes(q)) ||
+                           (!!catNorm && catNorm.includes(q)) ||
+                           (!!mgrNorm && qAliases.some(a => mgrNorm.includes(a)));
             }
         });
+        console.log('[SEARCH DEBUG] resultsQuery count:', resultsQuery.length, 'query:', q);
     }
+
+    // Resultado dos filtros avançados
+    let resultsAdvanced = data;
+    let buyerFilterCount = null;
+    if (hasAdvancedFilters) {
+        // buyer/manager alias-aware
+        if (typeof req.query.buyer === 'string' && req.query.buyer.trim().length > 0) {
+            const buyerTerm = normalize(req.query.buyer);
+            const buyerAliases = [buyerTerm, ...(buyerTerm === 'nacho' ? ['ignacio'] : [])];
+            const before = resultsAdvanced.length;
+            resultsAdvanced = resultsAdvanced.filter(record => {
+                const mgrNorm = normalize(getField(record, ['Responsable','Manager','Buyer']));
+                return !!mgrNorm && buyerAliases.some(a => mgrNorm.includes(a));
+            });
+            console.log('[SEARCH DEBUG] resultsAdvanced buyer alias count:', resultsAdvanced.length, 'buyerTerm:', buyerTerm, 'before:', before);
+            buyerFilterCount = resultsAdvanced.length;
+        }
+        if (category && category.trim()) {
+            const term = normalize(category);
+            const before = resultsAdvanced.length;
+            resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, ['CATEGORÍA','Category'])).includes(term));
+            console.log('[SEARCH DEBUG] category filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+        }
+        if (accountStatus && accountStatus.trim()) {
+            const term = normalize(accountStatus);
+            const before = resultsAdvanced.length;
+            resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, ['Account Request Status','Account Status'])) === term);
+            console.log('[SEARCH DEBUG] accountStatus filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+        }
+        if (status && status.trim()) {
+            const term = normalize(status);
+            const before = resultsAdvanced.length;
+            resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, [fieldStatusName])) === term);
+            console.log('[SEARCH DEBUG] status filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+        }
+    }
+
+    // Combinar resultados (interseção) quando houver filtros avançados e termo de busca
+    let results;
+    if (hasAdvancedFilters && (query && query.trim())) {
+        const idsAdvanced = new Set(resultsAdvanced.map(r => r._realIndex));
+        results = resultsQuery.filter(r => idsAdvanced.has(r._realIndex));
+    } else if (hasAdvancedFilters) {
+        results = resultsAdvanced;
+    } else if (query && query.trim()) {
+        results = resultsQuery;
+    } else {
+        results = data;
+    }
+
+    console.log('[SEARCH DEBUG] Combined (intersection) results count:', results.length);
+    
+    // Ordenação por campo, se solicitado
+    if (sortBy && ['accountStatus','status','buyer','category'].includes(sortBy)) {
+        const fieldMap = {
+            accountStatus: ['Account Request Status','Account Status'],
+            status: ['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'],
+            buyer: ['Responsable','Manager','Buyer'],
+            category: ['CATEGORÍA','Category']
+        };
+        const fieldKeys = fieldMap[sortBy];
+        const dir = (sortDirection || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+        results.sort((a, b) => {
+            const av = normalize(getField(a, fieldKeys));
+            const bv = normalize(getField(b, fieldKeys));
+            if (av < bv) return dir === 'desc' ? 1 : -1;
+            if (av > bv) return dir === 'desc' ? -1 : 1;
+            return 0;
+        });
+        console.log('[SEARCH DEBUG] Sorted by', sortBy, 'direction', sortDirection);
+    }
+    
+    // Listas pré-definidas para os filtros (valores únicos)
+    const collectUniqueValues = (records, fieldKeys) => {
+        const map = new Map();
+        for (const r of records) {
+            const raw = getField(r, fieldKeys);
+            const val = ((raw || '') + '').trim();
+            if (!val) continue;
+            const key = normalize(val);
+            if (!map.has(key)) map.set(key, val);
+        }
+        return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+    };
+    
+    const managersList = collectUniqueValues(data, ['Responsable','Manager','Buyer']);
+    const accountStatusList = collectUniqueValues(data, ['Account Request Status','Account Status']);
+    
+    // Persistir contadores de debug na sessão e adicionar rota /logs que renderiza a nova aba de Logs. Remover envio de debugCounts para a página de busca.
+    const debugCounts = {
+        resultsQueryCount: resultsQuery ? resultsQuery.length : 0,
+        resultsAdvancedBuyerAliasCount: buyerFilterCount,
+        combinedResultsCount: results.length
+    };
+    req.session.lastSearchDebugCounts = debugCounts;
     
     res.render('search', { 
         results: results, 
         query: query || '', 
         type: type || 'all',
-        user: req.session.user
+        user: req.session.user,
+        // filtros removidos da UI, permanecem aqui apenas para compatibilidade
+        accountStatus,
+        buyer,
+        category,
+        status,
+        sortBy,
+        sortDirection,
+        view,
+        managersList,
+        accountStatusList
     });
 });
 
@@ -941,11 +1190,18 @@ async function startServer() {
             try {
                 if (fs.existsSync(usersPath)) {
                     const usersData = fs.readFileSync(usersPath, 'utf8');
-                    const users = JSON.parse(usersData);
-                    console.log(`✅ [PRODUCTION DEBUG] users.json encontrado com ${users.length} usuários`);
-                    users.forEach((user, index) => {
-                        console.log(`👤 [PRODUCTION DEBUG] Usuário ${index + 1}: ${user.email} (${user.role})`);
-                    });
+                    let parsed = JSON.parse(usersData);
+                    const usersArr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.users) ? parsed.users : []);
+                    console.log(`✅ [PRODUCTION DEBUG] users.json encontrado com ${usersArr.length} usuários`);
+                    if (usersArr.length > 0) {
+                        usersArr.forEach((user, index) => {
+                            const email = user && user.email ? user.email : '(sem email)';
+                            const role = user && user.role ? user.role : '(sem role)';
+                            console.log(`👤 [PRODUCTION DEBUG] Usuário ${index + 1}: ${email} (${role})`);
+                        });
+                    } else {
+                        console.warn('⚠️ [PRODUCTION DEBUG] users.json não contém uma lista de usuários válida (array).');
+                    }
                 } else {
                     console.error('❌ [PRODUCTION DEBUG] users.json NÃO ENCONTRADO!');
                 }
@@ -962,3 +1218,17 @@ async function startServer() {
 
 // Iniciar servidor
 startServer();
+
+// Nova rota para exibir a aba de LOGs
+app.get('/logs', requireAuth, async (req, res) => {
+    const user = req.session.user;
+    // Caso futuramente tenhamos uma fonte de registros, poderemos popular este array.
+    const logs = [];
+    const debugCounts = req.session.lastSearchDebugCounts || null;
+
+    res.render('logs', {
+        user,
+        logs,
+        debugCounts
+    });
+});

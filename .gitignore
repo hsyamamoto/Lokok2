@@ -79,4 +79,4 @@ Thumbs.db
 *.temp
 
 # Railway
-.railway/
+.railway/backup-*/

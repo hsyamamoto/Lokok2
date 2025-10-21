@@ -69,9 +69,29 @@ if (NODE_ENV === 'production' && process.env.GOOGLE_DRIVE_FILE_ID) {
         console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
     }
 } else {
-    // Em desenvolvimento, usar arquivo local
-    EXCEL_PATH = process.env.EXCEL_PATH || path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
-    console.log('📊 [PRODUCTION DEBUG] Configurado para usar arquivo Excel local');
+    // Em desenvolvimento, resolver dinamicamente o caminho do Excel local
+    const candidates = [
+        process.env.EXCEL_PATH,
+        path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
+        path.join(__dirname, 'Lokok2', 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
+        path.join(__dirname, 'data', 'cached_spreadsheet.xlsx'),
+        path.join(__dirname, 'Lokok2', 'data', 'cached_spreadsheet.xlsx'),
+    ].filter(Boolean);
+    for (const p of candidates) {
+        try {
+            if (fs.existsSync(p)) {
+                EXCEL_PATH = p;
+                break;
+            }
+        } catch (e) {
+            // ignora erros de acesso
+        }
+    }
+    if (EXCEL_PATH) {
+        console.log('📊 [PRODUCTION DEBUG] Configurado para usar arquivo Excel local:', EXCEL_PATH);
+    } else {
+        console.warn('⚠️ [PRODUCTION DEBUG] Nenhum arquivo Excel encontrado nos caminhos padrão. As buscas retornarão 0 resultados.');
+    }
 }
 
 // Logs detalhados para produção
@@ -152,19 +172,33 @@ async function readExcelData() {
         } else {
             // Em desenvolvimento, usar arquivo local
             const workbook = XLSX.readFile(EXCEL_PATH);
-            
-            // Ler aba 'Wholesale LOKOK' (primeira aba)
-            if (workbook.SheetNames.includes('Wholesale LOKOK')) {
-                const worksheet1 = workbook.Sheets['Wholesale LOKOK'];
-                const data1 = XLSX.utils.sheet_to_json(worksheet1);
-                allData = allData.concat(data1);
-            }
-            
-            // Ler aba 'Wholesale CANADA' (segunda aba)
-            if (workbook.SheetNames.includes('Wholesale CANADA')) {
-                const worksheet2 = workbook.Sheets['Wholesale CANADA'];
-                const data2 = XLSX.utils.sheet_to_json(worksheet2);
-                allData = allData.concat(data2);
+            const sheetNames = workbook.SheetNames || [];
+            console.log('[PRODUCTION DEBUG] Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
+
+            // Preferir abas específicas se existirem; caso contrário, ler todas as abas
+            const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA'];
+            const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
+
+            if (existingPreferred.length > 0) {
+                for (const name of existingPreferred) {
+                    const ws = workbook.Sheets[name];
+                    const rows = XLSX.utils.sheet_to_json(ws);
+                    console.log('[PRODUCTION DEBUG] Lendo aba preferida:', name, 'Registros:', rows.length);
+                    allData = allData.concat(rows);
+                }
+            } else {
+                console.warn('[PRODUCTION DEBUG] Nenhuma aba preferida encontrada. Lendo todas as abas do arquivo.');
+                for (const name of sheetNames) {
+                    try {
+                        const ws = workbook.Sheets[name];
+                        const rows = XLSX.utils.sheet_to_json(ws);
+                        console.log('[PRODUCTION DEBUG] Lendo aba:', name, 'Registros:', rows.length);
+                        allData = allData.concat(rows);
+                    } catch (e) {
+                        console.warn('[PRODUCTION DEBUG] Falha ao ler aba:', name, e?.message);
+                    }
+                }
+                console.log('[PRODUCTION DEBUG] Total de registros após ler todas as abas:', allData.length);
             }
         }
         
@@ -645,36 +679,21 @@ app.get('/search', requireAuth, async (req, res) => {
         });
     } else if (req.session.user.role !== 'admin') {
         // Para outros usuários não-admin:
-        // Se houver query OU filtros avançados (buyer/category/accountStatus/status), permitir visualizar todos os registros
-        // porém com campos limitados (marcando _isResponsible), semelhante ao comportamento dos gerentes.
+        // Sempre permitir visualizar todos os registros, marcando _isResponsible para controle de exibição
         const userName = req.session.user.name;
-        const hasAnyFilterOrQuery = (
-            (typeof req.query.query === 'string' && req.query.query.trim().length > 0) ||
-            ['buyer','category','accountStatus','status'].some(
-                k => typeof req.query[k] === 'string' && req.query[k].trim().length > 0
-            )
-        );
-        if (hasAnyFilterOrQuery) {
-            data = data.map(record => {
-                const responsible = getField(record, ['Responsable','Manager','Buyer']);
-                const isResponsible = ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
-                return {
-                    ...record,
-                    _isResponsible: isResponsible
-                };
-            });
-        } else {
-            // Sem query e sem filtro avançado, mostrar somente registros onde o usuário é responsável
-            data = data.filter(record => {
-                const responsible = getField(record, ['Responsable','Manager','Buyer']);
-                return ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
-            });
-        }
+        data = data.map(record => {
+            const responsible = getField(record, ['Responsable','Manager','Buyer']);
+            const isResponsible = ((responsible || '') + '').toLowerCase().includes(((userName || '') + '').toLowerCase());
+            return {
+                ...record,
+                _isResponsible: isResponsible
+            };
+        });
     }
     
     // Novos filtros: Account Status, Buyer, Category e Status + ordenação
-    const { accountStatus = '', buyer = '', category = '', status = '', sortBy = '', sortDirection = 'asc', view = 'grid' } = req.query;
-    console.log('[SEARCH DEBUG] Params:', { query, type, accountStatus, buyer, category, status, sortBy, sortDirection, view });
+    const { accountStatus = '', buyer = '', category = '', status = '', sortBy = '', sortDirection = 'asc', view = 'grid', submitted = '', listAll = '' } = req.query;
+    console.log('[SEARCH DEBUG] Params:', { query, type, accountStatus, buyer, category, status, sortBy, sortDirection, view, submitted, listAll });
 
     // Normalização e getField já declarados acima no início da rota /search para evitar TDZ e duplicações.
 
@@ -685,8 +704,14 @@ app.get('/search', requireAuth, async (req, res) => {
 
     // Resultado do termo de busca (query)
     let resultsQuery = [];
-    if (query && (query + '').trim()) {
-        const q = normalize(query);
+    const qNorm = normalize(query || '');
+    const isAllQuery = qNorm === 'all' || qNorm === 'todos' || qNorm === 'tudo' || qNorm === '*';
+    if (isAllQuery) {
+        // Consulta especial: "ALL/TODOS/TUDO/*" retorna todos os registros
+        resultsQuery = data;
+        console.log('[SEARCH DEBUG] Special ALL-like query: returning all records');
+    } else if (query && (query + '').trim()) {
+        const q = qNorm;
         // Aliases para nomes próprios (ex.: Nacho -> Ignacio)
         const qAliases = [q, ...(q === 'nacho' ? ['ignacio'] : [])];
         resultsQuery = data.filter(record => {
@@ -751,7 +776,11 @@ app.get('/search', requireAuth, async (req, res) => {
 
     // Combinar resultados (interseção) quando houver filtros avançados e termo de busca
     let results;
-    if (hasAdvancedFilters && (query && query.trim())) {
+    const forceAll = (listAll === '1') || isAllQuery || (submitted === '1' && !((query || '').trim()) && !hasAdvancedFilters);
+    if (forceAll) {
+        results = data;
+        console.log('[SEARCH DEBUG] Force ALL results: returning all records (listAll checkbox or special ALL or submitted empty)');
+    } else if (hasAdvancedFilters && (query && query.trim())) {
         const idsAdvanced = new Set(resultsAdvanced.map(r => r._realIndex));
         results = resultsQuery.filter(r => idsAdvanced.has(r._realIndex));
     } else if (hasAdvancedFilters) {
@@ -821,8 +850,10 @@ app.get('/search', requireAuth, async (req, res) => {
         sortBy,
         sortDirection,
         view,
+        submitted,
         managersList,
-        accountStatusList
+        accountStatusList,
+        listAll
     });
 });
 

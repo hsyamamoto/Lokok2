@@ -160,6 +160,43 @@ function requireManagerOrAdmin(req, res, next) {
     }
 }
 
+// Helpers de armazenamento local de distribuidores (pendências, aprovações, tarefas de operador)
+const SUPPLIERS_STORE_PATH = path.join(__dirname, 'data', 'suppliers.json');
+function ensureSuppliersStore() {
+    try {
+        const dir = path.dirname(SUPPLIERS_STORE_PATH);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        if (!fs.existsSync(SUPPLIERS_STORE_PATH)) {
+            fs.writeFileSync(SUPPLIERS_STORE_PATH, JSON.stringify([] , null, 2), 'utf8');
+        }
+    } catch (e) {
+        console.warn('Aviso: falha ao garantir store local:', e?.message);
+    }
+}
+function readSuppliersStore() {
+    try {
+        ensureSuppliersStore();
+        const raw = fs.readFileSync(SUPPLIERS_STORE_PATH, 'utf8');
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        console.warn('Aviso: falha ao ler store local:', e?.message);
+        return [];
+    }
+}
+function writeSuppliersStore(arr) {
+    try {
+        ensureSuppliersStore();
+        fs.writeFileSync(SUPPLIERS_STORE_PATH, JSON.stringify(arr || [], null, 2), 'utf8');
+        return true;
+    } catch (e) {
+        console.warn('Aviso: falha ao escrever store local:', e?.message);
+        return false;
+    }
+}
+
 // Função para ler dados da planilha
 async function readExcelData() {
     try {
@@ -167,10 +204,52 @@ async function readExcelData() {
         
         if (NODE_ENV === 'production' && googleDriveService) {
             // Em produção, usar Google Drive
-            console.log('📥 Carregando dados do Google Drive...');
-            allData = await googleDriveService.readSpreadsheetData();
+            console.log('📥 [PRODUCTION DEBUG] Carregando dados do Google Drive...');
+            try {
+                allData = await googleDriveService.readSpreadsheetData();
+                console.log('✅ [PRODUCTION DEBUG] Dados carregados do Google Drive:', allData.length, 'registros');
+            } catch (driveError) {
+                console.error('❌ [PRODUCTION DEBUG] Erro ao carregar do Google Drive:', driveError);
+                console.log('🔄 [PRODUCTION DEBUG] Tentando fallback para arquivo local...');
+                
+                // Fallback para arquivo local se Google Drive falhar
+                if (fs.existsSync(EXCEL_PATH)) {
+                    const workbook = XLSX.readFile(EXCEL_PATH);
+                    const sheetNames = workbook.SheetNames || [];
+                    console.log('[PRODUCTION DEBUG] Fallback - Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
+                    
+                    const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA'];
+                    const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
+                    
+                    if (existingPreferred.length > 0) {
+                        for (const name of existingPreferred) {
+                            const ws = workbook.Sheets[name];
+                            const rows = XLSX.utils.sheet_to_json(ws);
+                            allData = allData.concat(rows);
+                        }
+                    } else {
+                        for (const name of sheetNames) {
+                            try {
+                                const ws = workbook.Sheets[name];
+                                const rows = XLSX.utils.sheet_to_json(ws);
+                                allData = allData.concat(rows);
+                            } catch (e) {
+                                console.warn('[PRODUCTION DEBUG] Falha ao ler aba:', name, e?.message);
+                            }
+                        }
+                    }
+                } else {
+                    console.error('❌ [PRODUCTION DEBUG] Arquivo Excel local não encontrado:', EXCEL_PATH);
+                    throw new Error('Nenhuma fonte de dados disponível');
+                }
+            }
         } else {
             // Em desenvolvimento, usar arquivo local
+            if (!fs.existsSync(EXCEL_PATH)) {
+                console.error('❌ [PRODUCTION DEBUG] Arquivo Excel não encontrado:', EXCEL_PATH);
+                throw new Error(`Arquivo Excel não encontrado: ${EXCEL_PATH}`);
+            }
+            
             const workbook = XLSX.readFile(EXCEL_PATH);
             const sheetNames = workbook.SheetNames || [];
             console.log('[PRODUCTION DEBUG] Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
@@ -202,10 +281,11 @@ async function readExcelData() {
             }
         }
         
-        console.log(`Dados carregados: ${allData.length} registros`);
+        console.log(`✅ [PRODUCTION DEBUG] Dados carregados: ${allData.length} registros`);
         return allData;
     } catch (error) {
-        console.error('Error reading spreadsheet:', error);
+        console.error('❌ [PRODUCTION DEBUG] Error reading spreadsheet:', error);
+        console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
         return [];
     }
 }
@@ -451,28 +531,43 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         responsibleStats,
         monthlyStats
     };
+    // Ler pendências de aprovação
+    const suppliersStore = readSuppliersStore();
+    const pendingApprovals = suppliersStore.filter(item => item.status === 'pending_approval');
+    const operatorTasks = suppliersStore.filter(item => item.status === 'approved' && item.operatorTaskPending === true);
+    const myRejected = suppliersStore.filter(item => item.status === 'rejected' && item.createdBy?.id === req.session.user?.id);
     
-        console.log('[PRODUCTION DEBUG] Renderizando dashboard com stats:', {
-            totalRecords: stats.totalRecords,
-            categorias: Object.keys(stats.categoryStats).length,
-            responsaveis: Object.keys(stats.responsibleStats).length,
-            userEmail: req.session.user?.email,
-            userRole: req.session.user?.role
-        });
-        
-        res.render('dashboard', {
-            user: req.session.user,
-            stats,
-            data: recentFilteredData,
-            sortedMonthlyEntries,
-            monthlySort: monthlySort || 'period_desc',
-            monthlyStart: monthlyStart || '',
-            monthlyEnd: monthlyEnd || '',
-            recentStart: recentStart || '',
-            recentEnd: recentEnd || ''
-        });
-        
-        console.log('[PRODUCTION DEBUG] Dashboard renderizado com sucesso');
+    console.log('[PRODUCTION DEBUG] Renderizando dashboard com stats:', {
+        totalRecords: stats.totalRecords,
+        categorias: Object.keys(stats.categoryStats).length,
+        responsaveis: Object.keys(stats.responsibleStats).length,
+        userEmail: req.session.user?.email,
+        userRole: req.session.user?.role,
+        pendingApprovals: pendingApprovals.length,
+        operatorTasks: operatorTasks.length,
+        myRejected: myRejected.length
+    });
+    
+    // Get all users for the "Who will call" dropdown
+    const allUsers = userRepository.findAll();
+    
+    res.render('dashboard', {
+        user: req.session.user,
+        stats,
+        data: recentFilteredData,
+        sortedMonthlyEntries,
+        monthlySort: monthlySort || 'period_desc',
+        monthlyStart: monthlyStart || '',
+        monthlyEnd: monthlyEnd || '',
+        recentStart: recentStart || '',
+        recentEnd: recentEnd || '',
+        pendingApprovals,
+        operatorTasks,
+        myRejected,
+        allUsers
+    });
+    
+    console.log('[PRODUCTION DEBUG] Dashboard renderizado com sucesso');
     } catch (error) {
         console.error('[PRODUCTION DEBUG] Erro na rota dashboard:', error);
         console.error('[PRODUCTION DEBUG] Stack trace:', error.stack);
@@ -483,8 +578,33 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     }
 });
 
+// Rota de detalhes de prioridade
+app.get('/priority-details', requireAuth, requireManagerOrAdmin, (req, res) => {
+    const existing = req.session.priorityDetails || {};
+    res.render('priority-details', { user: req.session.user, details: existing });
+});
+
+app.post('/priority-details', requireAuth, requireManagerOrAdmin, (req, res) => {
+    const body = req.body || {};
+    req.session.priorityDetails = {
+        monthlyRevenueSku: body.monthlyRevenueSku || '',
+        avgFbaSellers: body.avgFbaSellers || '',
+        avgSellers: body.avgSellers || '',
+        amazonInStockRate: body.amazonInStockRate || '',
+        additionalInfo: body.additionalInfo || '',
+        whoWillCall: body.whoWillCall || '',
+        callDate: body.callDate || '',
+        result: body.result || '',
+        followUpTask: body.followUpTask || '',
+        needApproval: body.needApproval || 'no'
+    };
+    res.json({ success: true, message: 'Priority details saved in session.' });
+});
+
 app.get('/form', requireAuth, requireManagerOrAdmin, (req, res) => {
-    res.render('form', { user: req.session.user });
+    const managers = userRepository.findAll().filter(u => u.role === 'gerente');
+    const managersList = managers.map(u => ({ id: u.id, name: u.name, email: u.email }));
+    res.render('form', { user: req.session.user, managersList });
 });
 
 app.get('/bulk-upload', requireAuth, requireManagerOrAdmin, (req, res) => {
@@ -513,13 +633,56 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         'Comments': req.body.comments,
         'Created_By_User_ID': req.session.user.id,
         'Created_By_User_Name': req.session.user.name,
-        'Responsable': req.session.user.name,
         'Created_At': new Date().toISOString()
     };
+    // Mesclar detalhes de prioridade salvos na sessão
+    const priorityDetails = req.session.priorityDetails || null;
+    if (priorityDetails) {
+        newRecord['Priority: Monthly Revenue / SKU quantity'] = priorityDetails.monthlyRevenueSku || '';
+        newRecord['Priority: Average FBA Sellers'] = priorityDetails.avgFbaSellers || '';
+        newRecord['Priority: Average Sellers'] = priorityDetails.avgSellers || '';
+        newRecord['Priority: Amazon In Stock Rate'] = priorityDetails.amazonInStockRate || '';
+        newRecord['Priority: Additional Information'] = priorityDetails.additionalInfo || '';
+        newRecord['Priority: Who will call'] = priorityDetails.whoWillCall || '';
+        newRecord['Priority: Call Date'] = priorityDetails.callDate || '';
+        newRecord['Priority: Result'] = priorityDetails.result || '';
+        newRecord['Priority: Follow-up Task'] = priorityDetails.followUpTask || '';
+        newRecord['Priority: Need Approval'] = priorityDetails.needApproval || 'no';
+    }
     
     data.push(newRecord);
     
-    if (await writeExcelData(data)) {
+    const saved = await writeExcelData(data);
+    // Fluxo de aprovação: registros com prioridade High sempre precisam de aprovação
+    try {
+        const isHighPriority = req.body.prioridade === '1' || req.body.prioridade === 1;
+        const needsApproval = priorityDetails && String(priorityDetails.needApproval).toLowerCase() === 'yes';
+        
+        if (isHighPriority || needsApproval) {
+            const store = readSuppliersStore();
+            const id = String(Date.now());
+            store.push({
+                id,
+                status: 'pending_approval',
+                distributor: newRecord,
+                createdBy: { id: req.session.user.id, name: req.session.user.name },
+                createdAt: new Date().toISOString(),
+                reason: isHighPriority ? 'High Priority (1)' : 'Manual Approval Request'
+            });
+            writeSuppliersStore(store);
+            console.log('[PRODUCTION DEBUG] Registro adicionado à lista de aprovação:', {
+                id,
+                reason: isHighPriority ? 'High Priority (1)' : 'Manual Approval Request',
+                distributor: newRecord.Name
+            });
+        }
+    } catch (e) {
+        console.warn('Aviso: falha ao registrar pendência de aprovação:', e?.message);
+    }
+    // Limpar detalhes de prioridade da sessão após salvar
+    req.session.priorityDetails = null;
+    
+    if (saved) {
         res.json({ success: true, message: 'Record added successfully!' });
     } else {
         res.json({ success: false, message: 'Error adding record.' });
@@ -1249,6 +1412,145 @@ async function startServer() {
 
 // Iniciar servidor
 startServer();
+
+// Rotas de aprovação/reprovação (Admin)
+app.post('/approve/:id', requireAuth, requireAdmin, (req, res) => {
+    try {
+        const id = req.params.id;
+        const { whoWillCall, callDate } = req.body;
+        const store = readSuppliersStore();
+        const item = store.find(x => String(x.id) === String(id));
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Item not found' });
+        }
+        item.status = 'approved';
+        item.approvedAt = new Date().toISOString();
+        item.approvedBy = { id: req.session.user.id, name: req.session.user.name };
+        item.operatorTaskPending = true;
+        
+        // Usar os campos definidos pelo admin na aprovação
+        item.operatorAssigned = whoWillCall || 'Hubert';
+        item.callDate = callDate;
+        
+        // Registrar histórico da aprovação
+        item.history = item.history || [];
+        item.history.push({
+            type: 'approved',
+            by: { id: req.session.user.id, name: req.session.user.name },
+            operatorAssigned: item.operatorAssigned,
+            callDate: item.callDate,
+            timestamp: new Date().toISOString()
+        });
+        writeSuppliersStore(store);
+        return res.json({ success: true, message: 'Approved successfully' });
+    } catch (e) {
+        console.error('Erro em /approve/:id', e);
+        return res.status(500).json({ success: false, message: 'Internal error' });
+    }
+});
+
+app.post('/reject/:id', requireAuth, requireAdmin, (req, res) => {
+    try {
+        const id = req.params.id;
+        const { reason } = req.body || {};
+        const store = readSuppliersStore();
+        const item = store.find(x => String(x.id) === String(id));
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Item not found' });
+        }
+        item.status = 'rejected';
+        item.rejectedAt = new Date().toISOString();
+        item.rejectedBy = { id: req.session.user.id, name: req.session.user.name };
+        item.rejectionReason = reason || '';
+        item.operatorTaskPending = false;
+        // Registrar histórico da reprovação
+        item.history = item.history || [];
+        item.history.push({
+            type: 'rejected',
+            by: { id: req.session.user.id, name: req.session.user.name },
+            reason: item.rejectionReason,
+            timestamp: new Date().toISOString()
+        });
+        writeSuppliersStore(store);
+        return res.json({ success: true, message: 'Rejected successfully' });
+    } catch (e) {
+        console.error('Erro em /reject/:id', e);
+        return res.status(500).json({ success: false, message: 'Internal error' });
+    }
+});
+
+// Rotas para formulário do Operador
+app.get('/operator-task/:id', requireAuth, requireRole(['operator', 'admin']), (req, res) => {
+    try {
+        const id = req.params.id;
+        const store = readSuppliersStore();
+        const item = store.find(x => String(x.id) === String(id));
+        if (!item) {
+            return res.status(404).render('error', { user: req.session.user, error: 'Item not found' });
+        }
+        return res.render('operator-task', { user: req.session.user, item });
+    } catch (e) {
+        console.error('Erro em GET /operator-task/:id', e);
+        return res.status(500).render('error', { user: req.session.user, error: 'Internal error' });
+    }
+});
+
+app.post('/operator-task/:id', requireAuth, requireRole(['operator', 'admin']), (req, res) => {
+    try {
+        const id = req.params.id;
+        const store = readSuppliersStore();
+        const item = store.find(x => String(x.id) === String(id));
+        if (!item) {
+            return res.status(404).json({ success: false, message: 'Item not found' });
+        }
+        const details = {
+            contactName: req.body.contactName || '',
+            phoneNumber: req.body.phoneNumber || '',
+            responsibleBuyer: req.body.responsibleBuyer || '',
+            responsibleCaller: req.body.responsibleCaller || req.session.user?.name || '',
+            dateCalled: req.body.dateCalled || '',
+            result: req.body.result || '',
+            followUp: req.body.followUp || '',
+            whoDoYouTalk: req.body.whoDoYouTalk || '',
+            comments: req.body.comments || '',
+            updatedAt: new Date().toISOString(),
+            updatedBy: { id: req.session.user.id, name: req.session.user.name }
+        };
+        item.operatorTaskPending = false;
+        item.operatorDetails = details;
+        item.history = item.history || [];
+        item.history.push({ type: 'operator_update', data: details, timestamp: new Date().toISOString() });
+        writeSuppliersStore(store);
+        return res.json({ success: true, message: 'Operator task saved successfully' });
+    } catch (e) {
+        console.error('Erro em POST /operator-task/:id', e);
+        return res.status(500).json({ success: false, message: 'Internal error' });
+    }
+});
+
+// Rota para exibir histórico do distribuidor
+app.get('/supplier-history/:id', requireAuth, requireRole(['admin', 'gerente']), (req, res) => {
+    try {
+        const id = req.params.id;
+        const store = readSuppliersStore();
+        const item = store.find(x => String(x.id) === String(id));
+        if (!item) {
+            return res.status(404).render('error', { user: req.session.user, message: 'Item not found' });
+        }
+        const user = req.session.user;
+        const isAdmin = user.role === 'admin';
+        const isManager = user.role === 'gerente';
+        const isAuthor = item.createdBy && String(item.createdBy.id) === String(user.id);
+        const isResponsible = item.distributor && item.distributor['Responsable'] && item.distributor['Responsable'] === user.name;
+        if (!isAdmin && !(isManager && (isAuthor || isResponsible))) {
+            return res.status(403).render('error', { user: req.session.user, message: 'Access denied' });
+        }
+        return res.render('supplier-history', { user: req.session.user, item });
+    } catch (e) {
+        console.error('Erro em GET /supplier-history/:id', e);
+        return res.status(500).render('error', { user: req.session.user, message: 'Internal error' });
+    }
+});
 
 // Nova rota para exibir a aba de LOGs
 app.get('/logs', requireAuth, async (req, res) => {

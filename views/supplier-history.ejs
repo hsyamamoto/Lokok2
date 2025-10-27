@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supplier History</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <nav class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">d
+                        <i class="fas fa-history text-purple-600 mr-2"></i>
+                        <span class="font-semibold">Supplier History</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-600 mr-3"><%= user?.name %> (<%= user?.role %>)</span>
+                        <a href="/dashboard" class="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">Back</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="max-w-5xl mx-auto mt-8 bg-white rounded-xl shadow-lg p-6">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 class="text-2xl font-semibold text-gray-900 mb-1">Distributor: <%= item.distributor?.Name || 'N/A' %></h2>
+                    <p class="text-sm text-gray-600">Category: <%= item.distributor?.['CATEGORÍA'] || 'N/A' %> • Manager: <%= item.distributor?.['Responsable'] || 'N/A' %></p>
+                    <% if (item.distributor?.Website) { %>
+                        <p class="text-sm mt-1"><a href="<%= item.distributor.Website %>" target="_blank" class="text-sky-600 hover:text-sky-800"><i class="fas fa-link mr-1"></i>Website</a></p>
+                    <% } %>
+                </div>
+                <div class="space-x-2">
+                    <a href="/operator-task/<%= item.id %>" class="inline-flex items-center px-3 py-2 bg-sky-300 text-sky-800 rounded hover:bg-sky-400">
+                        <i class="fas fa-phone mr-2"></i>Open Operator Task
+                    </a>
+                </div>
+            </div>
+
+            <div class="mt-6">
+                <h3 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-clock mr-2 text-purple-600"></i>
+                    Interaction History
+                </h3>
+                <% const _hist = (item.history || []); if (_hist.length === 0) { %>
+                    <p class="text-sm text-gray-600">No history recorded yet.</p>
+                <% } else { %>
+                <div class="space-y-3">
+                    <% _hist.slice().reverse().forEach(function(h){ %>
+                        <div class="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <% let icon = 'fa-info-circle', color = 'text-gray-600', label = h.type; 
+                                       if (h.type === 'approved') { icon = 'fa-check-circle'; color = 'text-emerald-600'; label = 'Approved'; }
+                                       else if (h.type === 'rejected') { icon = 'fa-times-circle'; color = 'text-rose-600'; label = 'Rejected'; }
+                                       else if (h.type === 'operator_update') { icon = 'fa-phone'; color = 'text-sky-600'; label = 'Operator Update'; } %>
+                                    <i class="fas <%= icon %> mr-2 <%= color %>"></i>
+                                    <span class="font-medium text-gray-900"><%= label %></span>
+                                </div>
+                                <span class="text-xs text-gray-500 font-mono"><%= (h.timestamp || h.updatedAt || '').toString().slice(0,19).replace('T',' ') %></span>
+                            </div>
+                            <div class="mt-2 text-sm text-gray-700">
+                                <% if (h.type === 'approved') { %>
+                                    <div>By: <%= h.by?.name || 'N/A' %></div>
+                                    <% if (h.assignedOperator) { %><div>Assigned Operator: <%= h.assignedOperator?.name || 'N/A' %></div><% } %>
+                                    <% if (h.approvalType) { %><div>Type: <%= h.approvalType %></div><% } %>
+                                <% } else if (h.type === 'rejected') { %>
+                                    <div>By: <%= h.by?.name || 'N/A' %></div>
+                                    <% if (h.reason) { %><div>Reason: <%= h.reason %></div><% } %>
+                                <% } else if (h.type === 'operator_update') { %>
+                                    <div>Caller: <%= h.data?.responsibleCaller || 'N/A' %></div>
+                                    <% if (h.data?.contactName) { %><div>Contact: <%= h.data.contactName %></div><% } %>
+                                    <% if (h.data?.phoneNumber) { %><div>Phone: <%= h.data.phoneNumber %></div><% } %>
+                                    <% if (h.data?.dateCalled) { %><div>Date Called: <%= h.data.dateCalled %></div><% } %>
+                                    <% if (h.data?.feedback) { %><div>Feedback: <%= h.data.feedback %></div><% } %>
+                                    <% if (h.data?.tradeshows) { %><div>Tradeshows: <%= h.data.tradeshows %></div><% } %>
+                                    <% if (h.data?.comments) { %><div>Comments: <%= h.data.comments %></div><% } %>
+                                <% } %>
+                            </div>
+                        </div>
+                    <% }); %>
+                </div>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operator Task</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <nav class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <i class="fas fa-phone text-sky-500 mr-2"></i>
+                        <span class="font-semibold">Operator Task</span>
+                    </div>
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-600 mr-3"><%= user?.name %> (<%= user?.role %>)</span>
+                        <a href="/dashboard" class="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">Back</a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="max-w-4xl mx-auto mt-8 bg-white rounded-xl shadow-lg p-6">
+            <h2 class="text-2xl font-semibold text-gray-900 mb-4">Distributor: <%= item.distributor?.Name || 'N/A' %></h2>
+            <p class="text-sm text-gray-600 mb-6">Category: <%= item.distributor?.['CATEGORÍA'] || 'N/A' %> • Manager: <%= item.distributor?.['Responsable'] || 'N/A' %></p>
+            
+            <!-- Distributor Contact Information -->
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <h3 class="text-lg font-semibold text-blue-900 mb-3 flex items-center">
+                    <i class="fas fa-address-book mr-2"></i>
+                    Distributor Contact Information
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">Contact Name</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border"><%= item.distributor?.['Contact Name'] || 'N/A' %></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">Contact Phone</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border">
+                            <% if (item.distributor?.['Contact Phone']) { %>
+                                <a href="tel:<%= item.distributor['Contact Phone'] %>" class="text-blue-600 hover:text-blue-800">
+                                    <i class="fas fa-phone mr-1"></i><%= item.distributor['Contact Phone'] %>
+                                </a>
+                            <% } else { %>
+                                N/A
+                            <% } %>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">Email</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border">
+                            <% if (item.distributor?.['E-Mail']) { %>
+                                <a href="mailto:<%= item.distributor['E-Mail'] %>" class="text-blue-600 hover:text-blue-800">
+                                    <i class="fas fa-envelope mr-1"></i><%= item.distributor['E-Mail'] %>
+                                </a>
+                            <% } else { %>
+                                N/A
+                            <% } %>
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">Website</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border">
+                            <% if (item.distributor?.Website) { %>
+                                <a href="<%= item.distributor.Website %>" target="_blank" class="text-blue-600 hover:text-blue-800">
+                                    <i class="fas fa-link mr-1"></i><%= item.distributor.Website %>
+                                </a>
+                            <% } else { %>
+                                N/A
+                            <% } %>
+                        </p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-blue-700">Address</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border"><%= item.distributor?.Address || 'N/A' %></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">User/Login</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border"><%= item.distributor?.User || 'N/A' %></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">LLAMAR</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border"><%= item.distributor?.LLAMAR || 'N/A' %></p>
+                    </div>
+                    <% if (item.distributor?.['Description/Notes']) { %>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-blue-700">Description/Notes</label>
+                        <p class="text-sm text-gray-900 bg-white px-3 py-2 rounded border"><%= item.distributor['Description/Notes'] %></p>
+                    </div>
+                    <% } %>
+                </div>
+            </div>
+
+            <form id="operatorForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Contact name</label>
+                    <input type="text" name="contactName" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" value="<%= item.distributor?.['Contact Name'] || '' %>" readonly>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Phone number</label>
+                    <input type="text" name="phoneNumber" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" value="<%= item.distributor?.['Contact Phone'] || '' %>" readonly>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Responsible Buyer</label>
+                    <input type="text" name="responsibleBuyer" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" value="<%= item.distributor?.['Responsable'] || '' %>" readonly>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Responsible Caller</label>
+                    <input type="text" name="responsibleCaller" class="mt-1 w-full border rounded px-3 py-2" value="<%= user?.name || '' %>">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Date Called to Supplier</label>
+                    <input type="date" name="dateCalled" class="mt-1 w-full border rounded px-3 py-2" value="<%= item.callDate || '' %>" required>
+                </div>
+                
+                <!-- New fields as requested by user -->
+                <div class="border-t pt-4 mt-6">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Result Details</h3>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Result</label>
+                        <select name="result" class="mt-1 w-full border rounded px-3 py-2" required>
+                            <option value="">Select result...</option>
+                            <option value="success">Success</option>
+                            <option value="failed">Failed</option>
+                            <option value="next_contact">Next Contact</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Follow-up</label>
+                        <textarea name="followUp" class="mt-1 w-full border rounded px-3 py-2" rows="3" placeholder="Enter follow-up details"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Who do you talk</label>
+                        <input type="text" name="whoDoYouTalk" class="mt-1 w-full border rounded px-3 py-2" placeholder="Enter who you talked to">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Comments</label>
+                        <textarea name="comments" class="mt-1 w-full border rounded px-3 py-2" rows="3" placeholder="Enter comments"></textarea>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end">
+                    <button type="submit" style="background-color: #10b981 !important; color: white !important; padding: 12px 24px !important; font-weight: 600 !important; border-radius: 8px !important; border: none !important; cursor: pointer !important; font-size: 16px !important;" class="px-6 py-3 bg-emerald-500 text-white font-semibold rounded-lg hover:bg-emerald-600 focus:ring-4 focus:ring-emerald-200 transition-all duration-200 shadow-lg hover:shadow-xl">
+                        SAVE
+                    </button>
+                </div>
+            </form>
+        <!-- Interaction History -->
+        <div id="history" class="mt-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <i class="fas fa-clock mr-2 text-purple-600"></i>
+                Interaction History
+            </h3>
+            <% const _hist = (item.history || []); if (_hist.length === 0) { %>
+                <p class="text-sm text-gray-600">No history recorded yet.</p>
+            <% } else { %>
+            <div class="space-y-3">
+                <% _hist.slice().reverse().forEach(function(h){ %>
+                    <div class="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <% let icon = 'fa-info-circle', color = 'text-gray-600', label = h.type; 
+                                   if (h.type === 'approved') { icon = 'fa-check-circle'; color = 'text-emerald-600'; label = 'Approved'; }
+                                   else if (h.type === 'rejected') { icon = 'fa-times-circle'; color = 'text-rose-600'; label = 'Rejected'; }
+                                   else if (h.type === 'operator_update') { icon = 'fa-phone'; color = 'text-sky-600'; label = 'Operator Update'; } %>
+                                <i class="fas <%= icon %> mr-2 <%= color %>"></i>
+                                <span class="font-medium text-gray-900"><%= label %></span>
+                            </div>
+                            <span class="text-xs text-gray-500 font-mono"><%= (h.timestamp || h.updatedAt || '').toString().slice(0,19).replace('T',' ') %></span>
+                        </div>
+                        <div class="mt-2 text-sm text-gray-700">
+                            <% if (h.type === 'approved') { %>
+                                <div>By: <%= h.by?.name || 'N/A' %></div>
+                                <% if (h.assignedOperator) { %><div>Assigned Operator: <%= h.assignedOperator?.name || 'N/A' %></div><% } %>
+                            <% } else if (h.type === 'rejected') { %>
+                                <div>By: <%= h.by?.name || 'N/A' %></div>
+                                <% if (h.reason) { %><div>Reason: <%= h.reason %></div><% } %>
+                            <% } else if (h.type === 'operator_update') { %>
+                                <div>Caller: <%= h.data?.responsibleCaller || 'N/A' %></div>
+                                <% if (h.data?.contactName) { %><div>Contact: <%= h.data.contactName %></div><% } %>
+                                <% if (h.data?.phoneNumber) { %><div>Phone: <%= h.data.phoneNumber %></div><% } %>
+                                <% if (h.data?.dateCalled) { %><div>Date Called: <%= h.data.dateCalled %></div><% } %>
+                                <% if (h.data?.result) { %><div>Result: <%= h.data.result %></div><% } %>
+                                <% if (h.data?.followUp) { %><div>Follow-up: <%= h.data.followUp %></div><% } %>
+                                <% if (h.data?.whoDoYouTalk) { %><div>Who do you talk: <%= h.data.whoDoYouTalk %></div><% } %>
+                                <% if (h.data?.comments) { %><div>Comments: <%= h.data.comments %></div><% } %>
+                            <% } %>
+                        </div>
+                    </div>
+                <% }); %>
+            </div>
+            <% } %>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('operatorForm').addEventListener('submit', async function(e){
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            try {
+                const resp = await fetch('/operator-task/<%= item.id %>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    alert('Saved successfully.');
+                    window.location.href = '/dashboard';
+                } else {
+                    alert('Failed to save: ' + (result.message || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Connection error.');
+            }
+        });
+    </script>
+</body>
+</html>

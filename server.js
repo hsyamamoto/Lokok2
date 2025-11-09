@@ -71,6 +71,11 @@ console.log('🔧 [PRODUCTION DEBUG] Configuração de sessão:', {
 // Servir arquivos estáticos
 app.use(express.static('public'));
 
+// Rota de healthcheck para Railway
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
 // Configuração do EJS como template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));

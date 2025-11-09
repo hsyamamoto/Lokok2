@@ -1,0 +1,54 @@
+name: Set Railway Variables
+
+on:
+  workflow_dispatch:
+
+jobs:
+  set-variables:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Set variables in Railway
+        env:
+          # Auth tokens (CLI will use RAILWAY_TOKEN first, then RAILWAY_API_TOKEN)
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+          # Default app variables
+          NODE_ENV: production
+          FORCE_LOCAL_EXCEL: '1'
+          EXCEL_PATH: ./data/cached_spreadsheet.xlsx
+
+          # Secrets (optional)
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+        run: |
+          set -e
+          set -o pipefail
+          echo "Authenticating Railway CLI..."
+          railway --version
+          # Attempt to show status; ignore failure if project is not linked yet
+          railway status || true
+          
+          echo "Setting variables (only non-empty values will be applied)"
+          for VAR in NODE_ENV FORCE_LOCAL_EXCEL EXCEL_PATH SESSION_SECRET GOOGLE_DRIVE_FILE_ID GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY; do
+            VALUE="${!VAR}"
+            if [ -n "$VALUE" ]; then
+              echo "Setting $VAR"
+              railway variables set "$VAR=$VALUE"
+            else
+              echo "Skipping $VAR (empty)"
+            fi
+          done

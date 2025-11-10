@@ -240,10 +240,28 @@ function getSheetNameForCountry(country) {
 function getCountryAliases(code) {
     const c = String(code || '').toUpperCase();
     if (c === 'US') return ['US', 'USA', 'UNITED STATES'];
-    if (c === 'CA') return ['CA', 'CANADA'];
-    if (c === 'MX') return ['MX', 'MEXICO'];
+    if (c === 'CA') return ['CA', 'CAN', 'CANADA'];
+    if (c === 'MX') return ['MX', 'MEX', 'MEXICO'];
     if (c === 'CN') return ['CN', 'CHINA'];
     return [c];
+}
+
+// Normaliza códigos de país para US/CA/MX e remove duplicatas
+function normalizeCountryCode(code) {
+    const c = String(code || '').toUpperCase();
+    if (['US', 'USA', 'UNITED STATES'].includes(c)) return 'US';
+    if (['CA', 'CAN', 'CANADA'].includes(c)) return 'CA';
+    if (['MX', 'MEX', 'MEXICO'].includes(c)) return 'MX';
+    // Não aceitar CN como Canadá; manter fora por padrão
+    return null;
+}
+
+function normalizeAllowedCountries(list) {
+    const arr = Array.isArray(list) ? list : [];
+    const normalized = arr.map(normalizeCountryCode).filter(Boolean);
+    // Remover CN explicitamente, se presente
+    const withoutCN = normalized.filter(c => c !== 'CN');
+    return Array.from(new Set(withoutCN));
 }
 
 function inferHeadersFromWorksheet(ws) {
@@ -319,7 +337,8 @@ async function readExcelData(selectedCountry) {
                 allData = await googleDriveService.readSpreadsheetData(selectedCountry);
                 console.log('✅ [PRODUCTION DEBUG] Dados carregados do Google Drive:', allData.length, 'registros');
                 // Filtrar por país se solicitado (quando houver campo Country)
-                if (selectedCountry) {
+                // Para US, manter todos os registros da aba padrão sem filtrar
+                if (selectedCountry && selectedCountry !== 'US') {
                     const before = allData.length;
                     const aliases = getCountryAliases(selectedCountry);
                     allData = allData.filter(r => {
@@ -553,7 +572,8 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         console.log('[PRODUCTION DEBUG] Ambiente:', NODE_ENV);
         console.log('[PRODUCTION DEBUG] Google Drive Service disponível:', !!googleDriveService);
         
-        const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
+        const allowedCountries = normalizeAllowedCountries(req.session.user?.allowedCountries);
+        const selectedCountry = req.session.selectedCountry || (allowedCountries[0] || 'US');
         const data = await readExcelData(selectedCountry);
         console.log('[PRODUCTION DEBUG] Dados carregados:', data.length, 'registros');
     
@@ -716,6 +736,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     
     res.render('dashboard', {
         user: req.session.user,
+        allowedCountries,
         selectedCountry,
         stats,
         data: recentFilteredData,
@@ -1745,10 +1766,10 @@ app.get('/logs', requireAuth, async (req, res) => {
 // Troca de país selecionado na sessão
 app.get('/switch-country', requireAuth, (req, res) => {
     try {
-        const country = (req.query.country || '').toUpperCase();
-        const validCountries = ['US', 'CA', 'MX', 'CN'];
-        const allowed = req.session.user?.allowedCountries || [];
-        if (!country || !validCountries.includes(country)) {
+        const raw = (req.query.country || '').toUpperCase();
+        const country = normalizeCountryCode(raw);
+        const allowed = normalizeAllowedCountries(req.session.user?.allowedCountries || []);
+        if (!country) {
             return res.redirect('/dashboard');
         }
         if (!allowed.includes(country)) {

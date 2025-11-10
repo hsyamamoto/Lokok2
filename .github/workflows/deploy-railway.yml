@@ -42,16 +42,45 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          DEFAULT_ADMIN_ALLOWED_COUNTRIES: ${{ secrets.DEFAULT_ADMIN_ALLOWED_COUNTRIES }}
+          GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
         run: |
           set -e
           # Authenticate is implicit via token env var
           railway variables set NODE_ENV=production
+          # Default to local Excel; will switch to Drive if credentials provided
           railway variables set FORCE_LOCAL_EXCEL=1
           railway variables set EXCEL_PATH=./data/cached_spreadsheet.xlsx
           if [ -n "$SESSION_SECRET" ]; then
             railway variables set SESSION_SECRET="$SESSION_SECRET"
           else
             echo "SESSION_SECRET not set; using default in code. Consider adding it as a secret." >&2
+          fi
+          # Google Drive credentials (optional)
+          if [ -n "$GOOGLE_DRIVE_FILE_ID" ]; then
+            railway variables set GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
+            # If a public Drive file ID is present, prefer Drive even without service account
+            railway variables set FORCE_LOCAL_EXCEL=0
+            echo "GOOGLE_DRIVE_FILE_ID detected; using Drive (FORCE_LOCAL_EXCEL=0)"
+          else
+            echo "GOOGLE_DRIVE_FILE_ID not set; staying on local Excel unless overridden." >&2
+          fi
+          if [ -n "$GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
+            railway variables set GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
+          fi
+          if [ -n "$GOOGLE_PRIVATE_KEY" ]; then
+            railway variables set GOOGLE_PRIVATE_KEY="$GOOGLE_PRIVATE_KEY"
+          fi
+
+          # Service account is optional when file is public; if provided, it enables private files
+
+          # Country list (fallback to default if secret missing)
+          if [ -n "$DEFAULT_ADMIN_ALLOWED_COUNTRIES" ]; then
+            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
+          else
+            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX,CN"
           fi
 
       - name: Print healthcheck URL

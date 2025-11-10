@@ -31,6 +31,10 @@ on:
         description: "GOOGLE_PRIVATE_KEY (optional)"
         required: false
         default: ""
+      default_admin_allowed_countries:
+        description: "DEFAULT_ADMIN_ALLOWED_COUNTRIES (default: US,CA,MX,CN)"
+        required: false
+        default: "US,CA,MX,CN"
 
 jobs:
   set-variables:
@@ -70,6 +74,7 @@ jobs:
 
           GOOGLE_PRIVATE_KEY_INPUT: ${{ inputs.google_private_key }}
           GOOGLE_PRIVATE_KEY_SECRET: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          DEFAULT_ADMIN_ALLOWED_COUNTRIES: ${{ inputs.default_admin_allowed_countries }}
         run: |
           set -e
           set -o pipefail
@@ -84,7 +89,7 @@ jobs:
           GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY_INPUT:-$GOOGLE_PRIVATE_KEY_SECRET}
 
           echo "Setting variables (only non-empty values will be applied)"
-          for VAR in NODE_ENV FORCE_LOCAL_EXCEL EXCEL_PATH SESSION_SECRET GOOGLE_DRIVE_FILE_ID GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY; do
+          for VAR in NODE_ENV FORCE_LOCAL_EXCEL EXCEL_PATH SESSION_SECRET GOOGLE_DRIVE_FILE_ID GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY DEFAULT_ADMIN_ALLOWED_COUNTRIES; do
             VALUE="${!VAR}"
             if [ -n "$VALUE" ]; then
               echo "Setting $VAR"

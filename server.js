@@ -232,7 +232,18 @@ function getSheetNameForCountry(country) {
     const c = String(country || '').toUpperCase();
     if (c === 'CA') return 'Wholesale CANADA';
     if (c === 'MX') return 'Wholesale MEXICO';
+    if (c === 'CN') return 'Wholesale CHINA';
     return 'Wholesale LOKOK'; // US padrão
+}
+
+// Aliases por país para filtragem robusta quando a planilha usa nomes completos
+function getCountryAliases(code) {
+    const c = String(code || '').toUpperCase();
+    if (c === 'US') return ['US', 'USA', 'UNITED STATES'];
+    if (c === 'CA') return ['CA', 'CANADA'];
+    if (c === 'MX') return ['MX', 'MEXICO'];
+    if (c === 'CN') return ['CN', 'CHINA'];
+    return [c];
 }
 
 function inferHeadersFromWorksheet(ws) {
@@ -256,6 +267,7 @@ function ensureCountrySheets(workbook) {
     const hasUS = sheetNames.includes('Wholesale LOKOK');
     const hasCA = sheetNames.includes('Wholesale CANADA');
     const hasMX = sheetNames.includes('Wholesale MEXICO');
+    const hasCN = sheetNames.includes('Wholesale CHINA');
     let changed = false;
 
     // Base de cabeçalhos: tenta da aba US ou da primeira aba
@@ -264,6 +276,7 @@ function ensureCountrySheets(workbook) {
     const emptySheetAoA = [headers];
     const emptyWS_CA = XLSX.utils.aoa_to_sheet(emptySheetAoA);
     const emptyWS_MX = XLSX.utils.aoa_to_sheet(emptySheetAoA);
+    const emptyWS_CN = XLSX.utils.aoa_to_sheet(emptySheetAoA);
 
     if (!hasCA) {
         workbook.Sheets['Wholesale CANADA'] = emptyWS_CA;
@@ -277,6 +290,12 @@ function ensureCountrySheets(workbook) {
         changed = true;
         console.log('📄 Criada aba vazia: Wholesale MEXICO');
     }
+    if (!hasCN) {
+        workbook.Sheets['Wholesale CHINA'] = emptyWS_CN;
+        workbook.SheetNames.push('Wholesale CHINA');
+        changed = true;
+        console.log('📄 Criada aba vazia: Wholesale CHINA');
+    }
 
     return { changed };
 }
@@ -288,7 +307,8 @@ async function readExcelData(selectedCountry) {
         const sheetMap = {
             US: 'Wholesale LOKOK',
             CA: 'Wholesale CANADA',
-            MX: 'Wholesale MEXICO'
+            MX: 'Wholesale MEXICO',
+            CN: 'Wholesale CHINA'
         };
         const targetSheet = selectedCountry && sheetMap[selectedCountry] ? sheetMap[selectedCountry] : null;
         
@@ -296,14 +316,17 @@ async function readExcelData(selectedCountry) {
             // Em produção, usar Google Drive
             console.log('📥 [PRODUCTION DEBUG] Carregando dados do Google Drive...');
             try {
-                allData = await googleDriveService.readSpreadsheetData();
+                allData = await googleDriveService.readSpreadsheetData(selectedCountry);
                 console.log('✅ [PRODUCTION DEBUG] Dados carregados do Google Drive:', allData.length, 'registros');
                 // Filtrar por país se solicitado (quando houver campo Country)
                 if (selectedCountry) {
                     const before = allData.length;
+                    const aliases = getCountryAliases(selectedCountry);
                     allData = allData.filter(r => {
                         const c = r.Country || r.PAIS || r.País || r['COUNTRY'];
-                        return c ? String(c).toUpperCase().includes(selectedCountry) : true;
+                        const cu = c ? String(c).toUpperCase() : '';
+                        // Quando há país selecionado, não incluir registros sem país explícito
+                        return c ? aliases.some(a => cu.includes(a)) : false;
                     });
                     console.log(`[PRODUCTION DEBUG] Filtro por país (${selectedCountry}) aplicado: ${before} -> ${allData.length}`);
                 }
@@ -322,7 +345,7 @@ async function readExcelData(selectedCountry) {
                     const sheetNames = workbook.SheetNames || [];
                     console.log('[PRODUCTION DEBUG] Fallback - Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
                     
-                    const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'];
+                    const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'];
                     const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
                     
                     if (selectedCountry && targetSheet && sheetNames.includes(targetSheet)) {
@@ -369,7 +392,7 @@ async function readExcelData(selectedCountry) {
             console.log('[PRODUCTION DEBUG] Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
 
             // Preferir abas específicas se existirem; caso contrário, ler todas as abas
-            const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'];
+            const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'];
             const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
 
             if (selectedCountry && targetSheet && sheetNames.includes(targetSheet)) {
@@ -414,9 +437,8 @@ async function writeExcelData(data, selectedCountry) {
     try {
         if (NODE_ENV === 'production' && googleDriveService) {
             // Em produção, salvar no Google Drive
-            console.log('💾 Salvando dados no Google Drive... (modo simples)');
-            // Observação: o serviço atual salva em uma única aba; separação por país pode exigir suporte adicional.
-            await googleDriveService.saveSpreadsheetData(data);
+            console.log('💾 Salvando dados no Google Drive (aba por país)...');
+            await googleDriveService.saveSpreadsheetData(data, selectedCountry);
         } else {
             // Em desenvolvimento, salvar no arquivo local
             const workbook = XLSX.readFile(EXCEL_PATH);
@@ -957,7 +979,9 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
 // Rota de busca
 app.get('/search', requireAuth, async (req, res) => {
     const { query, type } = req.query;
-    let data = await readExcelData();
+    // Garantir que buscas respeitem o país selecionado na sessão
+    const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
+    let data = await readExcelData(selectedCountry);
     
     // Helpers definidos ANTES do uso para evitar erros de TDZ
     const normalize = (s) => ((s || '') + '')
@@ -1192,7 +1216,8 @@ app.get('/search', requireAuth, async (req, res) => {
 
 // Rota GET para exibir formulário de edição
 app.get('/edit/:id', requireAuth, async (req, res) => {
-    const data = await readExcelData();
+    const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
+    const data = await readExcelData(selectedCountry);
     const recordId = parseInt(req.params.id);
     const user = req.session.user;
     
@@ -1234,7 +1259,8 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
 
 // Rota POST para processar alterações
 app.post('/edit/:id', requireAuth, async (req, res) => {
-    const data = await readExcelData();
+    const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
+    const data = await readExcelData(selectedCountry);
     const recordId = parseInt(req.params.id);
     const user = req.session.user;
     
@@ -1298,7 +1324,7 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     if (zipCode !== undefined) data[recordId]['Zip Code'] = zipCode;
     
     // Salvar alterações na planilha Excel
-    const saveSuccess = await writeExcelData(data);
+    const saveSuccess = await writeExcelData(data, selectedCountry);
     if (!saveSuccess) {
         return res.status(500).json({ 
             success: false, 
@@ -1720,7 +1746,7 @@ app.get('/logs', requireAuth, async (req, res) => {
 app.get('/switch-country', requireAuth, (req, res) => {
     try {
         const country = (req.query.country || '').toUpperCase();
-        const validCountries = ['US', 'CA', 'MX'];
+        const validCountries = ['US', 'CA', 'MX', 'CN'];
         const allowed = req.session.user?.allowedCountries || [];
         if (!country || !validCountries.includes(country)) {
             return res.redirect('/dashboard');

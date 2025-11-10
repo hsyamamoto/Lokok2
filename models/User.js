@@ -15,7 +15,7 @@ class User {
         // Países permitidos por perfil
         this.allowedCountries = Array.isArray(allowedCountries) && allowedCountries.length > 0
             ? allowedCountries
-            : (this.role === 'admin' ? ['US', 'CA', 'MX'] : ['US']);
+            : (this.role === 'admin' ? ['US', 'CA', 'MX', 'CN'] : ['US']);
     }
 
     // Método para verificar senha
@@ -93,7 +93,7 @@ class UserRepository {
                         // manter compatibilidade com arquivos antigos sem allowedCountries
                         Array.isArray(u.allowedCountries) && u.allowedCountries.length > 0
                             ? u.allowedCountries
-                            : (u.role === 'admin' ? ['US', 'CA', 'MX'] : ['US'])
+                            : (u.role === 'admin' ? ['US', 'CA', 'MX', 'CN'] : ['US'])
                     );
                     user.createdAt = new Date(u.createdAt);
                     user.isActive = u.isActive;

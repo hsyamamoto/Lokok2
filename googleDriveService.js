@@ -13,6 +13,75 @@ class GoogleDriveService {
     }
 
     /**
+     * Infere cabeçalhos da primeira linha da worksheet ou fornece um conjunto padrão
+     */
+    inferHeadersFromWorksheet(ws) {
+        try {
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+            const headerRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : [];
+            if (Array.isArray(headerRow) && headerRow.length > 0) return headerRow;
+        } catch (_) {}
+        return [
+            'Name','Website','CATEGORÍA','Account Request Status','DATE','Responsable',
+            'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)',
+            'Description/Notes','Contact Name','Contact Phone','E-Mail','Address','User','PASSWORD',
+            'LLAMAR','PRIO (1 - TOP, 5 - baixo)','Comments','Country','Created_By_User_ID','Created_By_User_Name','Created_At'
+        ];
+    }
+
+    /**
+     * Garante que existam abas vazias para CANADA/MEXICO/CHINA com a mesma estrutura
+     */
+    ensureCountrySheets(workbook) {
+        if (!workbook || !workbook.SheetNames) return { changed: false };
+        const sheetNames = workbook.SheetNames;
+        const hasUS = sheetNames.includes('Wholesale LOKOK');
+        const hasCA = sheetNames.includes('Wholesale CANADA');
+        const hasMX = sheetNames.includes('Wholesale MEXICO');
+        const hasCN = sheetNames.includes('Wholesale CHINA');
+        let changed = false;
+
+        const baseWs = hasUS ? workbook.Sheets['Wholesale LOKOK'] : workbook.Sheets[sheetNames[0]];
+        const headers = baseWs ? this.inferHeadersFromWorksheet(baseWs) : this.inferHeadersFromWorksheet({});
+        const emptySheetAoA = [headers];
+
+        if (!hasCA) {
+            const emptyWS_CA = XLSX.utils.aoa_to_sheet(emptySheetAoA);
+            workbook.Sheets['Wholesale CANADA'] = emptyWS_CA;
+            workbook.SheetNames.push('Wholesale CANADA');
+            changed = true;
+            console.log('📄 [PRODUCTION DEBUG] Criada aba vazia: Wholesale CANADA');
+        }
+        if (!hasMX) {
+            const emptyWS_MX = XLSX.utils.aoa_to_sheet(emptySheetAoA);
+            workbook.Sheets['Wholesale MEXICO'] = emptyWS_MX;
+            workbook.SheetNames.push('Wholesale MEXICO');
+            changed = true;
+            console.log('📄 [PRODUCTION DEBUG] Criada aba vazia: Wholesale MEXICO');
+        }
+        if (!hasCN) {
+            const emptyWS_CN = XLSX.utils.aoa_to_sheet(emptySheetAoA);
+            workbook.Sheets['Wholesale CHINA'] = emptyWS_CN;
+            workbook.SheetNames.push('Wholesale CHINA');
+            changed = true;
+            console.log('📄 [PRODUCTION DEBUG] Criada aba vazia: Wholesale CHINA');
+        }
+
+        return { changed };
+    }
+
+    /**
+     * Retorna o nome da aba correspondente ao país
+     */
+    getSheetNameForCountry(country) {
+        const c = String(country || '').toUpperCase();
+        if (c === 'CA') return 'Wholesale CANADA';
+        if (c === 'MX') return 'Wholesale MEXICO';
+        if (c === 'CN') return 'Wholesale CHINA';
+        return 'Wholesale LOKOK'; // US padrão
+    }
+
+    /**
      * Converte URL do Google Drive para URL de download direto
      */
     getDirectDownloadUrl() {
@@ -159,7 +228,7 @@ class GoogleDriveService {
     /**
      * Lê os dados da planilha
      */
-    async readSpreadsheetData() {
+    async readSpreadsheetData(selectedCountry) {
         try {
             console.log('📖 [PRODUCTION DEBUG] Iniciando leitura dos dados da planilha...');
             const spreadsheetPath = await this.getSpreadsheetPath();
@@ -188,13 +257,40 @@ class GoogleDriveService {
             
             console.log('📖 [PRODUCTION DEBUG] Lendo arquivo Excel...');
             const workbook = XLSX.readFile(spreadsheetPath);
-            console.log('📖 [PRODUCTION DEBUG] Sheets disponíveis:', workbook.SheetNames);
-            
-            const sheetName = workbook.SheetNames[0];
-            console.log('📖 [PRODUCTION DEBUG] Usando sheet:', sheetName);
-            
-            const worksheet = workbook.Sheets[sheetName];
-            const data = XLSX.utils.sheet_to_json(worksheet);
+            // Garantir que existam abas específicas de país
+            const ensured = this.ensureCountrySheets(workbook);
+            if (ensured.changed) {
+                try {
+                    XLSX.writeFile(workbook, this.localCachePath);
+                    console.log('🔧 [PRODUCTION DEBUG] Abas de país garantidas e cache atualizado');
+                } catch (e) {
+                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao atualizar cache após garantir abas:', e?.message);
+                }
+            }
+            const sheetNames = workbook.SheetNames || [];
+            console.log('📖 [PRODUCTION DEBUG] Sheets disponíveis:', sheetNames);
+
+            let data = [];
+            if (selectedCountry) {
+                const target = this.getSheetNameForCountry(selectedCountry);
+                console.log('📖 [PRODUCTION DEBUG] Usando sheet por país:', target);
+                const ws = workbook.Sheets[target];
+                data = XLSX.utils.sheet_to_json(ws);
+            } else {
+                // Sem país selecionado: concatenar abas preferidas se existirem, senão usar a primeira
+                const preferred = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'].filter(n => sheetNames.includes(n));
+                if (preferred.length > 0) {
+                    for (const name of preferred) {
+                        const ws = workbook.Sheets[name];
+                        const rows = XLSX.utils.sheet_to_json(ws);
+                        console.log('📖 [PRODUCTION DEBUG] Lendo sheet preferida:', name, 'Registros:', rows.length);
+                        data = data.concat(rows);
+                    }
+                } else {
+                    const ws = workbook.Sheets[sheetNames[0]];
+                    data = XLSX.utils.sheet_to_json(ws);
+                }
+            }
             
             console.log(`✅ [PRODUCTION DEBUG] ${data.length} registros carregados da planilha`);
             if (data.length > 0) {
@@ -213,19 +309,35 @@ class GoogleDriveService {
      * Salva dados na planilha (funcionalidade limitada - apenas local)
      * Nota: Para salvar no Google Drive seria necessário usar a API completa
      */
-    async saveSpreadsheetData(data) {
+    async saveSpreadsheetData(data, selectedCountry) {
         try {
-            console.log('💾 Salvando dados na planilha local...');
-            
-            // Criar workbook
-            const workbook = XLSX.utils.book_new();
-            const worksheet = XLSX.utils.json_to_sheet(data);
-            XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
-            
+            console.log('💾 Salvando dados na planilha local (cache)...');
+
+            let workbook;
+            if (fs.existsSync(this.localCachePath)) {
+                try {
+                    workbook = XLSX.readFile(this.localCachePath);
+                } catch (_) {
+                    workbook = XLSX.utils.book_new();
+                }
+            } else {
+                workbook = XLSX.utils.book_new();
+            }
+
+            const sheetName = this.getSheetNameForCountry(selectedCountry);
+            const worksheet = XLSX.utils.json_to_sheet(data || []);
+
+            // Remover sheet existente com mesmo nome, se houver
+            if (workbook.SheetNames?.includes(sheetName)) {
+                delete workbook.Sheets[sheetName];
+                workbook.SheetNames = workbook.SheetNames.filter(n => n !== sheetName);
+            }
+            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
             // Salvar localmente
             XLSX.writeFile(workbook, this.localCachePath);
             
-            console.log('✅ Dados salvos na planilha local');
+            console.log('✅ Dados salvos na planilha local (aba:', sheetName, ')');
             console.log('⚠️ Nota: Para sincronizar com Google Drive, seria necessário implementar upload via API');
             
         } catch (error) {

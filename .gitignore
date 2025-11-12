@@ -80,3 +80,11 @@ Thumbs.db
 
 # Railway
 .railway/backup-*/
+<<<<<<< HEAD
+=======
+
+# Backups e artefatos locais
+backup-*/
+versao completa/
+*.zip
+>>>>>>> 54808b4e2ed0ca5b656e86852ac0223e5ec1b7c6

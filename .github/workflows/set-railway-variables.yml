@@ -1,0 +1,100 @@
+name: Set Railway Variables
+
+on:
+  workflow_dispatch:
+    inputs:
+      node_env:
+        description: "NODE_ENV (default: production)"
+        required: false
+        default: "production"
+      force_local_excel:
+        description: "FORCE_LOCAL_EXCEL (default: 1)"
+        required: false
+        default: "1"
+      excel_path:
+        description: "EXCEL_PATH (default: ./data/cached_spreadsheet.xlsx)"
+        required: false
+        default: "./data/cached_spreadsheet.xlsx"
+      session_secret:
+        description: "SESSION_SECRET override (leave empty to use secret)"
+        required: false
+        default: ""
+      google_drive_file_id:
+        description: "GOOGLE_DRIVE_FILE_ID (optional)"
+        required: false
+        default: ""
+      google_service_account_email:
+        description: "GOOGLE_SERVICE_ACCOUNT_EMAIL (optional)"
+        required: false
+        default: ""
+      google_private_key:
+        description: "GOOGLE_PRIVATE_KEY (optional)"
+        required: false
+        default: ""
+      default_admin_allowed_countries:
+        description: "DEFAULT_ADMIN_ALLOWED_COUNTRIES (default: US,CA,MX)"
+        required: false
+        default: "US,CA,MX"
+
+jobs:
+  set-variables:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Set variables in Railway
+        env:
+          # Auth tokens (CLI will use RAILWAY_TOKEN first, then RAILWAY_API_TOKEN)
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+
+          # Use inputs with fallback to defaults/secrets
+          NODE_ENV: ${{ inputs.node_env }}
+          FORCE_LOCAL_EXCEL: ${{ inputs.force_local_excel }}
+          EXCEL_PATH: ${{ inputs.excel_path }}
+
+          # Secrets: prefer input override if provided, else repository secret
+          SESSION_SECRET_INPUT: ${{ inputs.session_secret }}
+          SESSION_SECRET_SECRET: ${{ secrets.SESSION_SECRET }}
+
+          GOOGLE_DRIVE_FILE_ID_INPUT: ${{ inputs.google_drive_file_id }}
+          GOOGLE_DRIVE_FILE_ID_SECRET: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
+
+          GOOGLE_SERVICE_ACCOUNT_EMAIL_INPUT: ${{ inputs.google_service_account_email }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+
+          GOOGLE_PRIVATE_KEY_INPUT: ${{ inputs.google_private_key }}
+          GOOGLE_PRIVATE_KEY_SECRET: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          DEFAULT_ADMIN_ALLOWED_COUNTRIES: ${{ inputs.default_admin_allowed_countries }}
+        run: |
+          set -e
+          set -o pipefail
+          echo "Authenticating Railway CLI..."
+          railway --version
+          railway status || true
+
+          # Resolve overrides for secrets: input has priority over repository secret
+          SESSION_SECRET=${SESSION_SECRET_INPUT:-$SESSION_SECRET_SECRET}
+          GOOGLE_DRIVE_FILE_ID=${GOOGLE_DRIVE_FILE_ID_INPUT:-$GOOGLE_DRIVE_FILE_ID_SECRET}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL_INPUT:-$GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}
+          GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY_INPUT:-$GOOGLE_PRIVATE_KEY_SECRET}
+
+          echo "Setting variables (only non-empty values will be applied)"
+          for VAR in NODE_ENV FORCE_LOCAL_EXCEL EXCEL_PATH SESSION_SECRET GOOGLE_DRIVE_FILE_ID GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY DEFAULT_ADMIN_ALLOWED_COUNTRIES; do
+            VALUE="${!VAR}"
+            if [ -n "$VALUE" ]; then
+              echo "Setting $VAR"
+              railway variables set "$VAR=$VALUE"
+            else
+              echo "Skipping $VAR (empty)"
+            fi
+          done

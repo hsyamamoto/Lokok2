@@ -3,7 +3,7 @@
     {
       "id": 1,
       "email": "admin@mylokok.com",
-      "password": "$2b$10$DdZAHbR8VMb/oQHzHWdFXuyOGNuxhC2YJ4mr/xCf3YD1U5KFlvP/W",
+      "password": "$2b$10$Gh3e.oaQoShjhfr8x9brjuozIhCVcKQrj94Y3KS0Kfds8II4Hcytm",
       "role": "admin",
       "name": "Admin",
       "createdBy": null,
@@ -22,18 +22,18 @@
     },
     {
       "id": 3,
-      "email": "gerente@mylokok.com",
-      "password": "$2b$10$DL08QTMo/WmPY9RYDdC2VOJ3tUwSBTNtYRIGCHe.IgpFO/vYq4t0O",
+      "email": "yeseikabeitia@mylokok.com",
+      "password": "$2b$10$GrQAWPcH0ravV/ktl7ZDa.Z.cP2RchJkTzHbzZnYrgwO7nd142Jiq",
       "role": "gerente",
-      "name": "Gerente",
+      "name": "Yeseika Beitia",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:56.073Z",
       "isActive": true
     },
     {
       "id": 4,
-      "email": "nacho@mylokok.com",
-      "password": "$2b$10$T80aRYp6NdTDhcgftJj9x.QZvXddBAUcEEir09qr1CB6GNLNt8yFe",
+      "email": "ignaciocortez@mylokok.com",
+      "password": "$2b$10$sCvKFdDXt1fuCc4fXd.1ceE68tsYP.RhDE.auhTsUIajN1oMpdn6u",
       "role": "gerente",
       "name": "Nacho",
       "createdBy": null,
@@ -48,16 +48,6 @@
       "name": "Hubert",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:56.219Z",
-      "isActive": true
-    },
-    {
-      "id": 6,
-      "email": "nacho2@mylokok.com",
-      "password": "$2b$10$lTqx15.MA6si2zxe/Z7W3eASEW4feHD0z6m/P.1RAFIZ//cs9Vg/y",
-      "role": "gerente",
-      "name": "Nacho",
-      "createdBy": null,
-      "createdAt": "2025-10-07T04:16:56.292Z",
       "isActive": true
     }
   ],

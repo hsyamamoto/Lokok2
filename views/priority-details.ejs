@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Priority Details</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://kit.fontawesome.com/a2e0e6e6f1.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-gray-50 font-[Inter]">
+    <div class="max-w-4xl mx-auto px-4 py-8">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold text-gray-900">
+                <i class="fas fa-star mr-2 text-amber-500"></i>
+                Priority - Additional Details
+            </h1>
+            <a href="/form" class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-sky-300 to-sky-400 text-sky-800 text-sm font-medium rounded-lg hover:from-sky-400 hover:to-sky-500 transition-all duration-200">
+                <i class="fas fa-arrow-left mr-2"></i>
+                Back to Form
+            </a>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <form id="priorityDetailsForm" class="space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Monthly Revenue / SKU quantity</label>
+                        <input type="text" name="monthlyRevenueSku" value="<%= details.monthlyRevenueSku || '' %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" placeholder="Ex: $50k / 200 SKUs" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Average FBA Sellers</label>
+                        <input type="number" name="avgFbaSellers" value="<%= details.avgFbaSellers || '' %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Average Sellers</label>
+                        <input type="number" name="avgSellers" value="<%= details.avgSellers || '' %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Amazon In Stock Rate (%)</label>
+                        <input type="number" step="0.01" name="amazonInStockRate" value="<%= details.amazonInStockRate || '' %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Additional Information</label>
+                    <textarea name="additionalInfo" rows="3" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg"><%= details.additionalInfo || '' %></textarea>
+                </div>
+
+                <!-- Campos Who will call e Call Date removidos - aparecem apenas na interface de aprovação do admin -->
+                <!-- Campos Result e Follow-up Task removidos - aparecem apenas para operador -->
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Need Approval?</label>
+                    <select name="needApproval" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg">
+                        <option value="no" <%= (details.needApproval || 'no') === 'no' ? 'selected' : '' %>>No</option>
+                        <option value="yes" <%= (details.needApproval || 'no') === 'yes' ? 'selected' : '' %>>Yes</option>
+                    </select>
+                </div>
+
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="handleCancel()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors duration-200">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-amber-300 text-amber-800 rounded-lg hover:bg-amber-400 transition-colors duration-200">
+                        <i class="fas fa-save mr-2"></i>
+                        Save Details
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function returnToFormFast() {
+            // Tentar focar o formulário original
+            try { if (window.opener) window.opener.focus(); } catch (e) {}
+            // Tentar fechar aba atual (funciona quando foi aberta via window.open)
+            try { window.close(); } catch (e) {}
+            // Fallback: caso o navegador não permita fechar, redirecionar de volta ao formulário
+            setTimeout(function() {
+                try { window.location.href = '/form'; } catch (e) {}
+            }, 100);
+        }
+
+        function handleCancel() {
+            returnToFormFast();
+        }
+
+        document.getElementById('priorityDetailsForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            try {
+                const resp = await fetch('/priority-details', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    // Salvo com sucesso: retornar automaticamente ao formulário
+                    returnToFormFast();
+                } else {
+                    alert('Failed to save priority details: ' + (result.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Connection error while saving priority details.');
+            }
+        });
+    </script>
+</body>
+</html>

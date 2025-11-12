@@ -93,24 +93,25 @@
                                 <option value="admin">Administrator</option>
                             </select>
                         </div>
-                        <div>
+                        <div class="md:col-span-2">
                             <label class="block text-sm font-medium text-gray-700 mb-2">
                                 <i class="fas fa-globe-americas mr-2"></i>Allowed Countries
                             </label>
-                            <div class="flex items-center space-x-4">
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="allowedCountries" value="US" class="mr-2" checked>
+                            <div class="flex items-center space-x-6">
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="US" class="rounded" checked>
                                     <span>US</span>
                                 </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="allowedCountries" value="CA" class="mr-2">
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="CA" class="rounded">
                                     <span>CA</span>
                                 </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="allowedCountries" value="MX" class="mr-2">
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="MX" class="rounded">
                                     <span>MX</span>
                                 </label>
                             </div>
+                            <p class="text-xs text-gray-500 mt-1">Admins default to all countries; managers can be limited.</p>
                         </div>
                         <div class="md:col-span-2">
                             <button type="submit" class="w-full bg-sky-300 hover:bg-sky-400 text-sky-800 px-4 py-3 rounded-xl font-medium transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
@@ -170,6 +171,10 @@
                                             <div class="text-xs text-gray-500 mb-1"><i class="fas fa-calendar mr-1"></i>Created on:</div>
                                             <div class="text-gray-800"><%= new Date(user.createdAt).toLocaleDateString('en-US') %></div>
                                         </div>
+                                        <div class="md:col-span-2">
+                                            <div class="text-xs text-gray-500 mb-1"><i class="fas fa-flag mr-1"></i>Allowed Countries:</div>
+                                            <div class="text-gray-800"><%= (user.allowedCountries || ['US']).join(', ') %></div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -215,20 +220,21 @@
                     </div>
                     <div class="mb-6">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Allowed Countries</label>
-                        <div class="flex items-center space-x-4">
-                            <label class="inline-flex items-center">
-                                <input type="checkbox" id="editCountryUS" name="editAllowedCountries" value="US" class="mr-2">
+                        <div class="flex items-center space-x-6">
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryUS" name="allowedCountries" value="US" class="rounded">
                                 <span>US</span>
                             </label>
-                            <label class="inline-flex items-center">
-                                <input type="checkbox" id="editCountryCA" name="editAllowedCountries" value="CA" class="mr-2">
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryCA" name="allowedCountries" value="CA" class="rounded">
                                 <span>CA</span>
                             </label>
-                            <label class="inline-flex items-center">
-                                <input type="checkbox" id="editCountryMX" name="editAllowedCountries" value="MX" class="mr-2">
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryMX" name="allowedCountries" value="MX" class="rounded">
                                 <span>MX</span>
                             </label>
                         </div>
+                        <p class="text-xs text-gray-500 mt-1">Check which countries this user can access.</p>
                     </div>
                     <div class="flex justify-end space-x-3">
                         <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors">
@@ -306,10 +312,10 @@
                 password: formData.get('password'),
                 role: formData.get('role')
             };
-            // Coletar países permitidos
-            const addCountries = Array.from(this.querySelectorAll('input[name="allowedCountries"]:checked')).map(i => i.value);
-            if (addCountries.length > 0) {
-                userData.allowedCountries = addCountries;
+            // Collect allowed countries from checked boxes
+            const allowed = Array.from(this.querySelectorAll('input[name="allowedCountries"]:checked')).map(i => i.value.toUpperCase());
+            if (allowed.length > 0) {
+                userData.allowedCountries = allowed;
             }
             
             try {
@@ -341,23 +347,22 @@
             const name = user && user.name;
             const email = user && user.email;
             const role = user && user.role;
-            const countries = Array.isArray(user && user.allowedCountries) ? user.allowedCountries : [];
+            const allowedCountries = Array.isArray(user && user.allowedCountries) ? user.allowedCountries : [];
 
             document.getElementById('editUserId').value = userId;
             document.getElementById('editName').value = name;
             document.getElementById('editEmail').value = email;
             document.getElementById('editRole').value = role;
             document.getElementById('editPassword').value = '';
-            // Reset checkboxes
-            ['US','CA','MX'].forEach(c => {
-                const el = document.getElementById('editCountry' + c);
-                if (el) el.checked = false;
-            });
-            // Aplicar países atuais
-            countries.map(c => String(c).toUpperCase()).forEach(key => {
-                const el = document.getElementById('editCountry' + key);
-                if (el) el.checked = true;
-            });
+            const countries = allowedCountries.map(c => String(c).toUpperCase());
+            const us = document.getElementById('editCountryUS');
+            const ca = document.getElementById('editCountryCA');
+            const mx = document.getElementById('editCountryMX');
+            if (us && ca && mx) {
+                us.checked = countries.includes('US');
+                ca.checked = countries.includes('CA');
+                mx.checked = countries.includes('MX');
+            }
             document.getElementById('editModal').classList.remove('hidden');
         }
         
@@ -375,16 +380,16 @@
                 email: formData.get('email'),
                 role: formData.get('role')
             };
-            // Países permitidos do formulário de edição
-            const editCountries = Array.from(document.querySelectorAll('input[name="editAllowedCountries"]:checked')).map(i => i.value);
-            if (editCountries.length > 0) {
-                userData.allowedCountries = editCountries;
-            }
             
             // Only include password if it's provided
             const password = formData.get('password');
             if (password && password.trim() !== '') {
                 userData.password = password;
+            }
+            // Collect allowed countries from checked boxes
+            const allowedEdit = Array.from(this.querySelectorAll('input[name="allowedCountries"]:checked')).map(i => i.value.toUpperCase());
+            if (allowedEdit.length > 0) {
+                userData.allowedCountries = allowedEdit;
             }
             
             const userId = formData.get('userId');
@@ -444,7 +449,7 @@
                     showMessage(result.message || 'Error deleting user', 'error');
                 }
             } catch (error) {
-                showMessage('Error deleting user', 'error');}]}}}
+                showMessage('Error deleting user', 'error');
             }
         }
         

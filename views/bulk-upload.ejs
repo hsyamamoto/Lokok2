@@ -98,14 +98,79 @@
         <div class="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
             <h2 class="text-lg font-semibold text-blue-800 mb-3">
                 <i class="fas fa-info-circle mr-2"></i>
-                How to Use Bulk Upload
+                Como usar o Upload em Lote
             </h2>
             <ol class="list-decimal list-inside space-y-2 text-blue-700">
-                <li>Download the Excel template by clicking the button below</li>
-                <li>Fill in your supplier data following the template format</li>
-                <li>Save the file and upload it using the upload area</li>
-                <li>Review the results and check for any errors</li>
+                <li>Baixe o template Excel clicando no botão abaixo.</li>
+                <li>Preencha os dados seguindo exatamente os cabeçalhos do template.</li>
+                <li>Salve o arquivo e faça o upload na área indicada.</li>
+                <li>Revise os resultados e verifique possíveis avisos/erros.</li>
             </ol>
+
+            <!-- Campos Suportados -->
+            <div class="mt-5 bg-white border border-blue-200 rounded-lg p-5">
+                <p class="text-sm text-blue-800 font-semibold mb-3">Campos suportados (US / CA / MX)</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <p class="text-sm font-medium text-blue-800 mb-2">Obrigatórios</p>
+                        <ul class="list-disc list-inside text-sm text-blue-700 space-y-1">
+                            <li>Name</li>
+                            <li>CATEGORÍA</li>
+                        </ul>
+                    </div>
+                    <div class="md:col-span-2">
+                        <p class="text-sm font-medium text-blue-800 mb-2">Opcionais</p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Website</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Account Request Status</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">DATE</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Responsable</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">STATUS (...)</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Description/Notes</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Contact Name</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Contact Phone</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">E-Mail</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Address</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">User</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PASSWORD</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">LLAMAR</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PRIO (1 - TOP, 5 - bajo)</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Comments</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p class="text-sm font-medium text-blue-800 mb-2">STATUS (coluna)</p>
+                        <p class="text-xs text-blue-700 mb-2">Cabeçalho exato: "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)"</p>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">BUYING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PENDING APPROVAL</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT COMPETITIVE</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT INTERESTING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">RED FLAG</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CHECKING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">REJECTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">FOLLOW UP</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CURRENTLY NOT PRIORITY</span>
+                        </div>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p class="text-sm font-medium text-blue-800 mb-2">Account Request Status (coluna)</p>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">APPROVED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT REQUESTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CHECK AGAIN</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT APPROVED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">REQUESTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">TO OPEN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-xs text-blue-700 mt-4">Observação: o registro é salvo automaticamente na aba do país selecionado (US/CA/MX). O template é compatível com os três ambientes.</p>
+            </div>
         </div>
 
         <!-- Bulk Upload Section -->
@@ -116,11 +181,11 @@
                         <i class="fas fa-cloud-upload-alt mr-3 text-emerald-600"></i>
                         Upload Excel File
                     </h2>
-                    <p class="text-emerald-700">Select your Excel file with supplier data</p>
+                    <p class="text-emerald-700">Selecione seu arquivo Excel com os dados dos fornecedores</p>
                 </div>
                 <a href="/download-template" class="inline-flex items-center px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 shadow-md">
                     <i class="fas fa-download mr-2"></i>
-                    Download Template
+                    Baixar Template (compatível US/CA/MX)
                 </a>
             </div>
             

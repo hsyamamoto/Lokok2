@@ -1,0 +1,83 @@
+name: Backup Railway Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      production_url:
+        description: "Production URL (default: https://lokok2-production.up.railway.app)"
+        required: false
+        default: "https://lokok2-production.up.railway.app"
+      include_logs:
+        description: "Include last 1000 lines of logs (default: false)"
+        required: false
+        default: "false"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Collect Railway environment and production info
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          PROD_URL: ${{ inputs.production_url }}
+          INCLUDE_LOGS: ${{ inputs.include_logs }}
+        run: |
+          set -e
+          set -o pipefail
+          mkdir -p backup
+          echo "== Railway CLI ==" > backup/cli_version.txt
+          railway --version >> backup/cli_version.txt || true
+
+          echo "Collecting Railway status..."
+          railway status > backup/status.txt || true
+
+          echo "Collecting Railway variables (text)..."
+          railway variables > backup/env.txt || true
+
+          echo "Collecting Railway variables (json)..."
+          railway variables --json > backup/env.json 2>/dev/null || echo '{}' > backup/env.json
+
+          echo "Listing Railway services..."
+          railway service list > backup/services.txt 2>/dev/null || true
+
+          echo "Listing Railway domains..."
+          railway domain list > backup/domains.txt 2>/dev/null || true
+
+          echo "Project info..."
+          railway project > backup/project.txt 2>/dev/null || true
+
+          if [ -n "$PROD_URL" ]; then
+            echo "Fetching production health: $PROD_URL/health"
+            curl -s "$PROD_URL/health" > backup/health.txt || true
+            echo "Fetching session debug: $PROD_URL/session-debug"
+            curl -s "$PROD_URL/session-debug" > backup/session-debug.txt || true
+            echo "Fetching root HTML: $PROD_URL/"
+            curl -s "$PROD_URL/" > backup/root.html || true
+          fi
+
+          if [ "$INCLUDE_LOGS" = "true" ]; then
+            echo "Collecting last 1000 lines of logs..."
+            railway logs --lines 1000 > backup/logs.txt 2>/dev/null || true
+          fi
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: railway-production-backup
+          path: |
+            backup
+            railway.json
+            .github/workflows/deploy-railway.yml
+            .github/workflows/set-railway-variables.yml

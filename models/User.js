@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const ALLOWED_COUNTRIES = ['US','CA','MX'];
 
 class User {
     constructor(id, email, password, role, name, createdBy = null, allowedCountries = null) {
@@ -12,9 +13,11 @@ class User {
         this.createdBy = createdBy; // ID do usuário que criou este usuário
         this.createdAt = new Date();
         this.isActive = true;
-        this.allowedCountries = Array.isArray(allowedCountries) && allowedCountries.length > 0
-            ? allowedCountries
-            : (this.role === 'admin' ? ['US','CA','MX'] : ['US']);
+        // Países permitidos por perfil
+        const normalized = Array.isArray(allowedCountries) ? allowedCountries.map(c => String(c).toUpperCase()) : null;
+        this.allowedCountries = (normalized && normalized.length > 0)
+            ? normalized.filter(c => ALLOWED_COUNTRIES.includes(c))
+            : (this.role === 'admin' ? ALLOWED_COUNTRIES : ['US']);
     }
 
     // Método para verificar senha
@@ -89,9 +92,10 @@ class UserRepository {
                         u.role,
                         u.name,
                         u.createdBy,
+                        // manter compatibilidade com arquivos antigos sem allowedCountries
                         Array.isArray(u.allowedCountries) && u.allowedCountries.length > 0
                             ? u.allowedCountries
-                            : (u.role === 'admin' ? ['US','CA','MX'] : ['US'])
+                            : (u.role === 'admin' ? ALLOWED_COUNTRIES : ['US'])
                     );
                     user.createdAt = new Date(u.createdAt);
                     user.isActive = u.isActive;
@@ -219,9 +223,7 @@ class UserRepository {
             userData.role,
             userData.name,
             userData.createdBy,
-            Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0
-                ? userData.allowedCountries.filter(c => ['US','CA','MX'].includes(c))
-                : (userData.role === 'admin' ? ['US','CA','MX'] : ['US'])
+            Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0 ? userData.allowedCountries : null
         );
         this.users.push(user);
         this.saveUsers();
@@ -239,11 +241,8 @@ class UserRepository {
                 user.password = User.hashPassword(userData.password);
             }
             user.role = userData.role || user.role;
-            if (Array.isArray(userData.allowedCountries)) {
-                const filtered = userData.allowedCountries.filter(c => ['US','CA','MX'].includes(c));
-                if (filtered.length > 0) {
-                    user.allowedCountries = filtered;
-                }
+            if (Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0) {
+                user.allowedCountries = userData.allowedCountries;
             }
             this.saveUsers();
             return user;

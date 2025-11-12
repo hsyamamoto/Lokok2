@@ -72,11 +72,28 @@ No Railway, vá em **Settings** → **Variables** e adicione:
 
 ```
 NODE_ENV=production
-SESSION_SECRET=lokok-railway-secret-2024-super-secure
-EXCEL_PATH=./data/Wholesale Suppliers and Product Opportunities.xlsx
+SESSION_SECRET=um-segredo-forte-aqui
+DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX
+
+# Para usar o Google Drive (arquivo público):
+FORCE_LOCAL_EXCEL=0
+GOOGLE_DRIVE_FILE_ID=1MTS0GlaxQdCPeAZZfwZvtbCjbQ_wFmXl
+
+# Fallback/local
+EXCEL_PATH=./data/cached_spreadsheet.xlsx
 ```
 
-**Nota**: `DATABASE_URL` será configurada automaticamente pelo Railway.
+Se o arquivo do Drive for privado, adicione também:
+
+```
+GOOGLE_SERVICE_ACCOUNT_EMAIL=service-account@project.iam.gserviceaccount.com
+GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...sua-chave...\n-----END PRIVATE KEY-----\n
+# Nesse caso, mantenha FORCE_LOCAL_EXCEL=0
+```
+
+**Notas**:
+- `DATABASE_URL` será configurada automaticamente pelo Railway se você adicionar PostgreSQL.
+- Com `GOOGLE_DRIVE_FILE_ID` público, não é necessário conta de serviço.
 
 #### D. Deploy Automático
 - O Railway fará o deploy automaticamente
@@ -153,3 +170,66 @@ Se tudo funcionou:
 **Desenvolvido para LOKOK** 🚀
 
 *Qualquer dúvida, consulte os logs do Railway ou este guia.*
+ 
+---
+
+## 🔁 Paridade Local/Produção (Railway)
+
+Para garantir que o ambiente de produção espelhe exatamente seu ambiente local:
+
+- Root Directory: use a raiz do repositório (onde estão `package.json` e `server.js`).
+- Start Command: `npm start`.
+- Health Check: configure `GET /health` nas configurações do serviço.
+- Variáveis de ambiente (Railway → Variables):
+  - `NODE_ENV=production`
+  - `SESSION_SECRET` com valor seguro
+  - `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX`
+  - Para Drive público: `FORCE_LOCAL_EXCEL=0` + `GOOGLE_DRIVE_FILE_ID=<ID>`
+  - Para arquivo privado no Drive: `FORCE_LOCAL_EXCEL=0` + `GOOGLE_DRIVE_FILE_ID` + `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY`
+  - Fallback local: `EXCEL_PATH=./data/cached_spreadsheet.xlsx`
+  - (Opcional) `DATABASE_URL` se usar PostgreSQL
+
+### Validação de Paridade
+- Acesse `/health` e confirme `200 OK`.
+- Acesse `/version` para ver commit/branch em produção.
+- Teste `/` e `/login` — devem responder com `200` assim como no local.
+
+Observação: o arquivo `data/cached_spreadsheet.xlsx` está no repositório para garantir a mesma base de dados entre local e produção quando `FORCE_LOCAL_EXCEL=1`. Quando `FORCE_LOCAL_EXCEL=0` e `GOOGLE_DRIVE_FILE_ID` está definido, a aplicação baixa e faz cache automático.
+## Deploy (Railway) e Suporte a Países
+
+Este projeto suporta múltiplos países nas abas do Excel: `Wholesale LOKOK` (US), `Wholesale CANADA`, `Wholesale MEXICO`. O servidor valida e filtra dados com aliases (`US/USA/UNITED STATES`, `CA/CANADA`, `MX/MEXICO`).
+
+### Variáveis de Ambiente Necessárias
+
+Configure as variáveis no Railway ou no arquivo `.env.production`:
+
+- `PORT`: porta do servidor (ex.: `3000`).
+- `NODE_ENV`: `production` em produção.
+- `SESSION_SECRET`: segredo forte para sessão.
+- `GOOGLE_DRIVE_FILE_ID`: ID do arquivo no Google Drive (pode ser público; ativa download/caching do Excel). Se público, não precisa de conta de serviço.
+- `GOOGLE_SERVICE_ACCOUNT_EMAIL`: e-mail da service account (necessário para arquivos privados).
+- `GOOGLE_PRIVATE_KEY`: chave privada da service account (use `\n` para quebras de linha, necessário para arquivos privados).
+- `EXCEL_PATH`: caminho do Excel local de fallback (se Google Drive não estiver configurado).
+- `DEFAULT_ADMIN_ALLOWED_COUNTRIES`: valores padrão permitidos para admin, ex.: `US,CA,MX`.
+
+Veja exemplos em `.env.production.example`.
+
+### Planilha do Google Drive
+
+Recomendado:
+- Garantir que existam abas por país: `Wholesale LOKOK`, `Wholesale CANADA`, `Wholesale MEXICO`.
+- Alternativamente, incluir coluna `Country` com valores consistentes (ex.: `US`, `CA`, `MX`).
+
+O servidor cria abas quando faltam (no cache local). Para escrita no Google Drive, o serviço salva na aba correspondente ao país quando configurado (US/CA/MX). Em arquivos públicos, apenas leitura é garantida; escrita requer permissões (arquivo compartilhado com a service account como Editor).
+
+### Passos de Validação
+
+1. Defina `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX` e garanta que usuários admin possuam `allowedCountries` coerentes no `users.json`.
+2. Suba o servidor (`NODE_ENV=production`). Se `GOOGLE_DRIVE_FILE_ID` não estiver configurado, usará `EXCEL_PATH` local.
+3. Faça login como admin, troque entre `US`, `CA` e `MX` em `/switch-country` e valide que o dashboard e a busca refletem dados da aba/país correto.
+4. Caso utilize Google Drive, valide o download do Excel e a leitura das abas país.
+
+### Observações
+
+- A rota `/search` e `/edit/:id` foram ajustadas para respeitar `selectedCountry` ao ler e salvar.
+- Caso precise de escrita diferenciada por aba no Google Drive, considere estender `googleDriveService.saveSpreadsheetData` para aceitar a aba destino.

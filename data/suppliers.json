@@ -1,0 +1,345 @@
+[
+  {
+    "id": "1761332418883",
+    "status": "approved",
+    "distributor": {
+      "Name": "teste2",
+      "Website": "http://www.teste.com.br",
+      "CATEGORÍA": "teste",
+      "Account Request Status": "APPROVED",
+      "DATE": "2025-07-15",
+      "Responsable": "Yeseika Beitia",
+      "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)": "PENDING APPROVAL",
+      "Description/Notes": "teste",
+      "Contact Name": "teste",
+      "Contact Phone": "teste",
+      "E-Mail": "teste@tes.com.br",
+      "Address": "teste",
+      "User": "admin@mylokok.com",
+      "PASSWORD": "admin123",
+      "LLAMAR": "teste",
+      "PRIO (1 - TOP, 5 - bajo)": "High",
+      "Comments": "",
+      "Created_By_User_ID": 1,
+      "Created_By_User_Name": "Admin",
+      "Created_At": "2025-10-24T19:00:18.442Z",
+      "Priority: Monthly Revenue / SKU quantity": "50",
+      "Priority: Average FBA Sellers": "50",
+      "Priority: Average Sellers": "50",
+      "Priority: Amazon In Stock Rate": "50",
+      "Priority: Additional Information": "teste",
+      "Priority: Who will call": "teste",
+      "Priority: Call Date": "1978-07-15",
+      "Priority: Result": "",
+      "Priority: Follow-up Task": "",
+      "Priority: Need Approval": "yes"
+    },
+    "createdBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "createdAt": "2025-10-24T19:00:18.883Z",
+    "approvedAt": "2025-10-24T19:00:37.741Z",
+    "approvedBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "operatorTaskPending": true,
+    "operatorAssigned": "teste",
+    "callDate": "2025-10-24",
+    "history": [
+      {
+        "type": "approved",
+        "by": {
+          "id": 1,
+          "name": "Admin"
+        },
+        "operatorAssigned": "teste",
+        "timestamp": "2025-10-24T19:00:37.742Z"
+      }
+    ]
+  },
+  {
+    "id": "1761334484057",
+    "status": "approved",
+    "distributor": {
+      "Name": "teste3",
+      "Website": "http://www.teste.com.br",
+      "CATEGORÍA": "teste",
+      "Account Request Status": "APPROVED",
+      "DATE": "1878-07-15",
+      "Responsable": "Nacho",
+      "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)": "PENDING APPROVAL",
+      "Description/Notes": "teste",
+      "Contact Name": "teste",
+      "Contact Phone": "tees",
+      "E-Mail": "teste@hotmail.com",
+      "Address": "teste",
+      "User": "admin@mylokok.com",
+      "PASSWORD": "admin123",
+      "LLAMAR": "teste",
+      "PRIO (1 - TOP, 5 - bajo)": "High",
+      "Comments": "teste",
+      "Created_By_User_ID": 1,
+      "Created_By_User_Name": "Admin",
+      "Created_At": "2025-10-24T19:34:43.527Z",
+      "Priority: Monthly Revenue / SKU quantity": "21",
+      "Priority: Average FBA Sellers": "4321",
+      "Priority: Average Sellers": "42",
+      "Priority: Amazon In Stock Rate": "421",
+      "Priority: Additional Information": "53w53",
+      "Priority: Who will call": "",
+      "Priority: Call Date": "",
+      "Priority: Result": "",
+      "Priority: Follow-up Task": "",
+      "Priority: Need Approval": "yes"
+    },
+    "createdBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "createdAt": "2025-10-24T19:34:44.057Z",
+    "approvedAt": "2025-10-24T19:49:27.368Z",
+    "approvedBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "operatorTaskPending": true,
+    "operatorAssigned": "admin@mylokok.com",
+    "callDate": "2025-10-27",
+    "history": [
+      {
+        "type": "approved",
+        "by": {
+          "id": 1,
+          "name": "Admin"
+        },
+        "operatorAssigned": "admin@mylokok.com",
+        "callDate": "2025-10-27",
+        "timestamp": "2025-10-24T19:49:27.368Z"
+      }
+    ]
+  },
+  {
+    "id": "1761335325075",
+    "status": "approved",
+    "distributor": {
+      "Name": "teste4q",
+      "Website": "http://www.teste.com.br",
+      "CATEGORÍA": "teste",
+      "Account Request Status": "APPROVED",
+      "DATE": "1788-07-15",
+      "Responsable": "Nacho",
+      "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)": "PENDING APPROVAL",
+      "Description/Notes": "teste",
+      "Contact Name": "teste",
+      "Contact Phone": "teste",
+      "E-Mail": "teste@hotmail.com",
+      "Address": "teste",
+      "User": "admin@mylokok.com",
+      "PASSWORD": "admin123",
+      "LLAMAR": "teste",
+      "PRIO (1 - TOP, 5 - bajo)": "High",
+      "Comments": "teste",
+      "Created_By_User_ID": 1,
+      "Created_By_User_Name": "Admin",
+      "Created_At": "2025-10-24T19:48:44.772Z",
+      "Priority: Monthly Revenue / SKU quantity": "50",
+      "Priority: Average FBA Sellers": "50",
+      "Priority: Average Sellers": "50",
+      "Priority: Amazon In Stock Rate": "50",
+      "Priority: Additional Information": "53w",
+      "Priority: Who will call": "",
+      "Priority: Call Date": "",
+      "Priority: Result": "",
+      "Priority: Follow-up Task": "",
+      "Priority: Need Approval": "yes"
+    },
+    "createdBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "createdAt": "2025-10-24T19:48:45.076Z",
+    "reason": "Manual Approval Request",
+    "approvedAt": "2025-10-24T19:49:54.678Z",
+    "approvedBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "operatorTaskPending": true,
+    "operatorAssigned": "admin@mylokok.com",
+    "callDate": "2025-01-15",
+    "history": [
+      {
+        "type": "approved",
+        "by": {
+          "id": 1,
+          "name": "Admin"
+        },
+        "operatorAssigned": "admin@mylokok.com",
+        "callDate": "2025-01-15",
+        "timestamp": "2025-10-24T19:49:54.678Z"
+      }
+    ]
+  },
+  {
+    "id": "1761336018202",
+    "status": "approved",
+    "distributor": {
+      "Name": "teste5",
+      "Website": "http://www.teste.com.br",
+      "CATEGORÍA": "teste",
+      "Account Request Status": "APPROVED",
+      "DATE": "2025-07-15",
+      "Responsable": "Nacho",
+      "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)": "PENDING APPROVAL",
+      "Description/Notes": "teste",
+      "Contact Name": "teste",
+      "Contact Phone": "1198,5,1",
+      "E-Mail": "hsya@hotmail.com",
+      "Address": "teste",
+      "User": "admin@mylokok.com",
+      "PASSWORD": "admin123",
+      "LLAMAR": "",
+      "PRIO (1 - TOP, 5 - bajo)": "High",
+      "Comments": "",
+      "Created_By_User_ID": 1,
+      "Created_By_User_Name": "Admin",
+      "Created_At": "2025-10-24T20:00:17.724Z",
+      "Priority: Monthly Revenue / SKU quantity": "10",
+      "Priority: Average FBA Sellers": "10",
+      "Priority: Average Sellers": "10",
+      "Priority: Amazon In Stock Rate": "10",
+      "Priority: Additional Information": "",
+      "Priority: Who will call": "",
+      "Priority: Call Date": "",
+      "Priority: Result": "",
+      "Priority: Follow-up Task": "",
+      "Priority: Need Approval": "yes"
+    },
+    "createdBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "createdAt": "2025-10-24T20:00:18.202Z",
+    "reason": "Manual Approval Request",
+    "approvedAt": "2025-10-24T20:00:39.753Z",
+    "approvedBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "operatorTaskPending": false,
+    "operatorAssigned": "admin@mylokok.com",
+    "callDate": "2025-10-24",
+    "history": [
+      {
+        "type": "approved",
+        "by": {
+          "id": 1,
+          "name": "Admin"
+        },
+        "operatorAssigned": "admin@mylokok.com",
+        "callDate": "2025-10-24",
+        "timestamp": "2025-10-24T20:00:39.753Z"
+      },
+      {
+        "type": "operator_update",
+        "data": {
+          "contactName": "teste",
+          "phoneNumber": "1198,5,1",
+          "responsibleBuyer": "Nacho",
+          "responsibleCaller": "Admin",
+          "dateCalled": "2025-10-24",
+          "result": "success",
+          "followUp": "ttetete",
+          "whoDoYouTalk": "Hubert",
+          "comments": "bakabakabkaab",
+          "updatedAt": "2025-10-28T16:13:46.434Z",
+          "updatedBy": {
+            "id": 1,
+            "name": "Admin"
+          }
+        },
+        "timestamp": "2025-10-28T16:13:46.434Z"
+      }
+    ],
+    "operatorDetails": {
+      "contactName": "teste",
+      "phoneNumber": "1198,5,1",
+      "responsibleBuyer": "Nacho",
+      "responsibleCaller": "Admin",
+      "dateCalled": "2025-10-24",
+      "result": "success",
+      "followUp": "ttetete",
+      "whoDoYouTalk": "Hubert",
+      "comments": "bakabakabkaab",
+      "updatedAt": "2025-10-28T16:13:46.434Z",
+      "updatedBy": {
+        "id": 1,
+        "name": "Admin"
+      }
+    }
+  },
+  {
+    "id": "1761667914154",
+    "status": "approved",
+    "distributor": {
+      "Name": "teste",
+      "Website": "https://test.com.br",
+      "CATEGORÍA": "teste",
+      "Account Request Status": "APPROVED",
+      "DATE": "2025-07-15",
+      "Responsable": "Nacho",
+      "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)": "PENDING APPROVAL",
+      "Description/Notes": "teste",
+      "Contact Name": "teste",
+      "Contact Phone": "teste",
+      "E-Mail": "teste@hotmail.com",
+      "Address": "teste",
+      "User": "admin@mylokok.com",
+      "PASSWORD": "admin123",
+      "LLAMAR": "teste",
+      "PRIO (1 - TOP, 5 - bajo)": "High",
+      "Comments": "teste",
+      "Created_By_User_ID": 1,
+      "Created_By_User_Name": "Admin",
+      "Created_At": "2025-10-28T16:11:53.716Z",
+      "Priority: Monthly Revenue / SKU quantity": "40",
+      "Priority: Average FBA Sellers": "50",
+      "Priority: Average Sellers": "40",
+      "Priority: Amazon In Stock Rate": "40",
+      "Priority: Additional Information": "53w53",
+      "Priority: Who will call": "",
+      "Priority: Call Date": "",
+      "Priority: Result": "",
+      "Priority: Follow-up Task": "",
+      "Priority: Need Approval": "yes"
+    },
+    "createdBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "createdAt": "2025-10-28T16:11:54.154Z",
+    "reason": "Manual Approval Request",
+    "approvedAt": "2025-10-28T16:13:04.886Z",
+    "approvedBy": {
+      "id": 1,
+      "name": "Admin"
+    },
+    "operatorTaskPending": true,
+    "operatorAssigned": "admin@mylokok.com",
+    "callDate": "2025-10-22",
+    "history": [
+      {
+        "type": "approved",
+        "by": {
+          "id": 1,
+          "name": "Admin"
+        },
+        "operatorAssigned": "admin@mylokok.com",
+        "callDate": "2025-10-22",
+        "timestamp": "2025-10-28T16:13:04.896Z"
+      }
+    ]
+  }
+]

@@ -48,6 +48,20 @@
                     </h1>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <% if (user && Array.isArray(user.allowedCountries) && user.allowedCountries.length > 0) { %>
+                    <form action="/switch-country" method="POST" class="flex items-center space-x-2">
+                        <label for="country" class="text-sm text-blue-700">Country</label>
+                        <select id="country" name="country" class="text-sm px-2 py-1 border border-blue-300 rounded-md bg-white text-blue-800">
+                            <% user.allowedCountries.forEach(function(c) { %>
+                                <option value="<%= c %>" <%= (typeof selectedCountry !== 'undefined' && selectedCountry === c) ? 'selected' : '' %>><%= c %></option>
+                            <% }); %>
+                        </select>
+                        <button type="submit" class="text-sm text-blue-700 hover:text-blue-900 transition-colors duration-200">
+                            <i class="fas fa-globe mr-1"></i>
+                            Switch
+                        </button>
+                    </form>
+                    <% } %>
                     <span class="text-sm text-blue-700">
                         Welcome, <span class="font-medium"><%= user.name %></span>
                     </span>
@@ -251,28 +265,53 @@
             </div>
         </div>
 
-        <!-- Recent Records Table -->
-        <div class="bg-white rounded-xl shadow-lg p-6">
+        <!-- TOP 5 Seller do mês -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
             <h3 class="text-xl font-semibold text-gray-900 mb-4">
-                <i class="fas fa-table mr-2 text-sky-500"></i>
-                Recent Records
+                <i class="fas fa-trophy mr-2 text-amber-500"></i>
+                TOP 5 Seller do mês
             </h3>
-            <!-- Filtro por data -->
             <form method="GET" action="/dashboard" class="mb-4">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="flex items-center justify-between">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Start date</label>
-                        <input type="date" name="recentStart" value="<%= _recentStart %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
-                    </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">End date</label>
-                        <input type="date" name="recentEnd" value="<%= _recentEnd %>" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Selecione o mês</label>
+                        <select name="topMonth" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg">
+                            <% if (typeof topMonthOptions !== 'undefined' && Array.isArray(topMonthOptions)) { %>
+                                <% topMonthOptions.forEach(function(m) { %>
+                                    <option value="<%= m %>" <%= (typeof selectedTopMonth !== 'undefined' && selectedTopMonth === m) ? 'selected' : '' %>><%= m %></option>
+                                <% }); %>
+                            <% } %>
+                        </select>
                     </div>
-                    <div class="md:col-span-2 flex items-end">
-                        <button type="submit" class="bg-sky-300 hover:bg-sky-400 text-sky-800 px-4 py-2 rounded-lg font-medium transition-all">Apply</button>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full bg-amber-300 hover:bg-amber-400 text-amber-800 px-4 py-2 rounded-lg font-medium transition-all">Aplicar</button>
                     </div>
                 </div>
             </form>
+
+            <div class="space-y-3">
+                <% if (typeof topManagerEntries !== 'undefined' && Array.isArray(topManagerEntries) && topManagerEntries.length) { %>
+                    <% topManagerEntries.forEach(function(entry) { %>
+                        <div class="flex items-center justify-between">
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800">
+                                <%= String(entry[0]) %>
+                            </span>
+                            <span class="text-sm font-medium text-gray-700">Total: <%= Number(entry[1] || 0) %></span>
+                        </div>
+                    <% }); %>
+                <% } else { %>
+                    <p class="text-sm text-gray-500">Nenhum dado para o mês selecionado.</p>
+                <% } %>
+            </div>
+        </div>
+
+        <!-- Recent Records Preview -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-semibold text-gray-900 mb-2">
+                <i class="fas fa-table mr-2 text-sky-500"></i>
+                Recent Records (preview)
+            </h3>
+            <p class="text-sm text-gray-500 mb-4">Mostrando os 5 últimos cadastros.</p>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
@@ -286,7 +325,12 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        <% data.forEach(function(record, index) { %>
+                        <% (function() {
+                            const arr = (typeof recentPreviewData !== 'undefined' && Array.isArray(recentPreviewData))
+                                ? recentPreviewData
+                                : ((typeof data !== 'undefined' && Array.isArray(data)) ? data.slice(0,5) : []);
+                            arr.forEach(function(record) {
+                        %>
                         <tr class="hover:bg-gray-50 transition-colors duration-200">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                 <%= record.Name || 'N/A' %>
@@ -321,7 +365,9 @@
                                 <% } %>
                             </td>
                         </tr>
-                        <% }); %>
+                        <%
+                            });
+                        })(); %>
                     </tbody>
                 </table>
             </div>
@@ -428,6 +474,7 @@
                 createChart();
             }
         })();
+
     </script>
 </body>
 </html>

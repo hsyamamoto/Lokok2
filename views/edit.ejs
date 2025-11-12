@@ -163,27 +163,46 @@
                     <div>
                         <label for="accountRequestStatus" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-clipboard-check mr-1"></i>
-                            Account Request Status
+                            Account Status
                         </label>
                         <select id="accountRequestStatus" name="accountRequestStatus"
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                             <option value="">Select...</option>
-                            <option value="Pending" <%= (record['Account Request Status'] === 'Pending') ? 'selected' : '' %>>Pending</option>
-                            <option value="Approved" <%= (record['Account Request Status'] === 'Approved') ? 'selected' : '' %>>Approved</option>
-                            <option value="Rejected" <%= (record['Account Request Status'] === 'Rejected') ? 'selected' : '' %>>Rejected</option>
+                            <option value="APPROVED" <%= ((record['Account Request Status']||'').toUpperCase() === 'APPROVED') ? 'selected' : '' %>>APPROVED</option>
+                            <option value="NOT REQUESTED" <%= ((record['Account Request Status']||'').toUpperCase() === 'NOT REQUESTED') ? 'selected' : '' %>>NOT REQUESTED</option>
+                            <option value="CHECK AGAIN" <%= ((record['Account Request Status']||'').toUpperCase() === 'CHECK AGAIN') ? 'selected' : '' %>>CHECK AGAIN</option>
+                            <option value="NOT APPROVED" <%= ((record['Account Request Status']||'').toUpperCase() === 'NOT APPROVED') ? 'selected' : '' %>>NOT APPROVED</option>
+                            <option value="REQUESTED" <%= ((record['Account Request Status']||'').toUpperCase() === 'REQUESTED') ? 'selected' : '' %>>REQUESTED</option>
+                            <option value="TO OPEN" <%= ((record['Account Request Status']||'').toUpperCase() === 'TO OPEN') ? 'selected' : '' %>>TO OPEN</option>
                         </select>
                     </div>
                     <div>
-                        <label for="generalStatus" class="block text-sm font-medium text-gray-700 mb-2">
+                        <label for="status" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-flag mr-1"></i>
-                            General Status
+                            Status
                         </label>
-                        <select id="generalStatus" name="generalStatus"
+                        <select id="status" name="status"
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                             <option value="">Select...</option>
-                            <option value="Active" <%= (record['General Status'] === 'Active') ? 'selected' : '' %>>Active</option>
-                            <option value="Inactive" <%= (record['General Status'] === 'Inactive') ? 'selected' : '' %>>Inactive</option>
-                            <option value="Suspended" <%= (record['General Status'] === 'Suspended') ? 'selected' : '' %>>Suspended</option>
+                            <option value="BUYING" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'BUYING') ? 'selected' : '' %>>BUYING</option>
+                            <option value="CHECKING" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'CHECKING') ? 'selected' : '' %>>CHECKING</option>
+                            <option value="CURRENTLY NOT PRIORITY" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'CURRENTLY NOT PRIORITY') ? 'selected' : '' %>>CURRENTLY NOT PRIORITY</option>
+                            <option value="WORK WITH DISTRIBUTORS" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'WORK WITH DISTRIBUTORS') ? 'selected' : '' %>>WORK WITH DISTRIBUTORS</option>
+                            <option value="WEBSITE NOT WORKING" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'WEBSITE NOT WORKING') ? 'selected' : '' %>>WEBSITE NOT WORKING</option>
+                            <option value="TO DEFINE" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'TO DEFINE') ? 'selected' : '' %>>TO DEFINE</option>
+                            <option value="SEEMS NOT LEGIT" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'SEEMS NOT LEGIT') ? 'selected' : '' %>>SEEMS NOT LEGIT</option>
+                            <option value="RETAILER" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'RETAILER') ? 'selected' : '' %>>RETAILER</option>
+                            <option value="REJECTED" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'REJECTED') ? 'selected' : '' %>>REJECTED</option>
+                            <option value="RED FLAG" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'RED FLAG') ? 'selected' : '' %>>RED FLAG</option>
+                            <option value="PENDING APPROVAL" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'PENDING APPROVAL') ? 'selected' : '' %>>PENDING APPROVAL</option>
+                            <option value="ONLY BRICK & MORTAR STORES" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'ONLY BRICK & MORTAR STORES') ? 'selected' : '' %>>ONLY BRICK & MORTAR STORES</option>
+                            <option value="NOT INTERESTING" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NOT INTERESTING') ? 'selected' : '' %>>NOT INTERESTING</option>
+                            <option value="NOT COMPETITIVE" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NOT COMPETITIVE') ? 'selected' : '' %>>NOT COMPETITIVE</option>
+                            <option value="NOT 3RD PARTY SELLERS" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NOT 3RD PARTY SELLERS') ? 'selected' : '' %>>NOT 3RD PARTY SELLERS</option>
+                            <option value="NO AUTHENTICITY" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NO AUTHENTICITY') ? 'selected' : '' %>>NO AUTHENTICITY</option>
+                            <option value="NO AMAZON CURRENTLY" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NO AMAZON CURRENTLY') ? 'selected' : '' %>>NO AMAZON CURRENTLY</option>
+                            <option value="NO AMAZON" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'NO AMAZON') ? 'selected' : '' %>>NO AMAZON</option>
+                            <option value="FOLLOW UP" <%= ((record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)']||'').toUpperCase() === 'FOLLOW UP') ? 'selected' : '' %>>FOLLOW UP</option>
                         </select>
                     </div>
                 </div>

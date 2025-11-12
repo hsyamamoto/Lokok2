@@ -73,7 +73,7 @@
                                     <i class="fas fa-keyboard mr-2"></i>Search term
                                 </label>
                                 <input type="text" id="query" name="query" 
-                                       value="<%= query %>" placeholder="Type what you want to search..." required
+                                       value="<%= query %>" placeholder="Type what you want to search..."
                                        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             </div>
                             
@@ -101,13 +101,19 @@
                                 </a>
                             </div>
                         </div>
+                        <div class="mt-4 flex justify-end">
+                            <button type="submit" name="list" value="all" class="bg-sky-200 hover:bg-sky-300 text-sky-800 px-4 py-2 rounded-lg font-medium transition-all">
+                                List all distributors
+                            </button>
+                        </div>
+                        
                     </form>
                 </div>
             </div>
         </div>
         
         <!-- Results -->
-        <% if (query) { %>
+        <% if (query || (typeof list !== 'undefined' && list === 'all')) { %>
         
         <!-- Debug Counts Panel removido: agora disponível na aba LOGs -->
         
@@ -166,17 +172,31 @@
                         </label>
                         <select id="status" name="status" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             <option value="" <%= (typeof status === 'undefined' || status === '') ? 'selected' : '' %>>Any</option>
-                            <option value="PENDING APPROVAL" <%= (typeof status !== 'undefined' && status === 'PENDING APPROVAL') ? 'selected' : '' %>>PENDING APPROVAL</option>
-                            <option value="BUYING" <%= (typeof status !== 'undefined' && status === 'BUYING') ? 'selected' : '' %>>BUYING</option>
-                            <option value="CHECKING" <%= (typeof status !== 'undefined' && status === 'CHECKING') ? 'selected' : '' %>>CHECKING</option>
-                            <option value="NOT COMPETITIVE" <%= (typeof status !== 'undefined' && status === 'NOT COMPETITIVE') ? 'selected' : '' %>>NOT COMPETITIVE</option>
-                            <option value="NOT INTERESTING" <%= (typeof status !== 'undefined' && status === 'NOT INTERESTING') ? 'selected' : '' %>>NOT INTERESTING</option>
-                            <option value="RED FLAG" <%= (typeof status !== 'undefined' && status === 'RED FLAG') ? 'selected' : '' %>>RED FLAG</option>
+                            <option value="BUYING" <%= (status === 'BUYING') ? 'selected' : '' %>>BUYING</option>
+                            <option value="CHECKING" <%= (status === 'CHECKING') ? 'selected' : '' %>>CHECKING</option>
+                            <option value="CURRENTLY NOT PRIORITY" <%= (status === 'CURRENTLY NOT PRIORITY') ? 'selected' : '' %>>CURRENTLY NOT PRIORITY</option>
+                            <option value="WORK WITH DISTRIBUTORS" <%= (status === 'WORK WITH DISTRIBUTORS') ? 'selected' : '' %>>WORK WITH DISTRIBUTORS</option>
+                            <option value="WEBSITE NOT WORKING" <%= (status === 'WEBSITE NOT WORKING') ? 'selected' : '' %>>WEBSITE NOT WORKING</option>
+                            <option value="TO DEFINE" <%= (status === 'TO DEFINE') ? 'selected' : '' %>>TO DEFINE</option>
+                            <option value="SEEMS NOT LEGIT" <%= (status === 'SEEMS NOT LEGIT') ? 'selected' : '' %>>SEEMS NOT LEGIT</option>
+                            <option value="RETAILER" <%= (status === 'RETAILER') ? 'selected' : '' %>>RETAILER</option>
+                            <option value="REJECTED" <%= (status === 'REJECTED') ? 'selected' : '' %>>REJECTED</option>
+                            <option value="RED FLAG" <%= (status === 'RED FLAG') ? 'selected' : '' %>>RED FLAG</option>
+                            <option value="PENDING APPROVAL" <%= (status === 'PENDING APPROVAL') ? 'selected' : '' %>>PENDING APPROVAL</option>
+                            <option value="ONLY BRICK & MORTAR STORES" <%= (status === 'ONLY BRICK & MORTAR STORES') ? 'selected' : '' %>>ONLY BRICK & MORTAR STORES</option>
+                            <option value="NOT INTERESTING" <%= (status === 'NOT INTERESTING') ? 'selected' : '' %>>NOT INTERESTING</option>
+                            <option value="NOT COMPETITIVE" <%= (status === 'NOT COMPETITIVE') ? 'selected' : '' %>>NOT COMPETITIVE</option>
+                            <option value="NOT 3RD PARTY SELLERS" <%= (status === 'NOT 3RD PARTY SELLERS') ? 'selected' : '' %>>NOT 3RD PARTY SELLERS</option>
+                            <option value="NO AUTHENTICITY" <%= (status === 'NO AUTHENTICITY') ? 'selected' : '' %>>NO AUTHENTICITY</option>
+                            <option value="NO AMAZON CURRENTLY" <%= (status === 'NO AMAZON CURRENTLY') ? 'selected' : '' %>>NO AMAZON CURRENTLY</option>
+                            <option value="NO AMAZON" <%= (status === 'NO AMAZON') ? 'selected' : '' %>>NO AMAZON</option>
+                            <option value="FOLLOW UP" <%= (status === 'FOLLOW UP') ? 'selected' : '' %>>FOLLOW UP</option>
                         </select>
                     </div>
 
-                    <div class="md:col-span-12 flex justify-end items-end">
+                    <div class="md:col-span-12 flex justify-end items-end gap-3">
                         <button type="submit" class="bg-violet-300 hover:bg-violet-400 text-violet-800 px-4 py-2 rounded-lg font-medium transition-all">Apply filters</button>
+                        <button type="submit" name="list" value="all" class="bg-sky-200 hover:bg-sky-300 text-sky-800 px-4 py-2 rounded-lg font-medium transition-all">List all distributors</button>
                     </div>
                 </form>
             </div>
@@ -184,11 +204,24 @@
         
         <div class="mb-8">
             <div class="bg-white rounded-2xl shadow-xl border-0 overflow-hidden">
-                <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-6 py-4">
+                <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-6 py-4 flex items-center justify-between">
                     <h2 class="text-xl font-semibold text-sky-800 mb-0">
                         <i class="fas fa-list mr-2"></i>Search Results
                         <span class="bg-sky-300/50 text-sky-800 px-3 py-1 rounded-full text-sm ml-2"><%= results.length %> found</span>
                     </h2>
+                    <form method="GET" action="/search" class="flex items-center gap-2">
+                        <input type="hidden" name="query" value="<%= query %>" />
+                        <input type="hidden" name="type" value="<%= type %>" />
+                        <input type="hidden" name="buyer" value="<%= typeof buyer !== 'undefined' ? buyer : '' %>" />
+                        <input type="hidden" name="category" value="<%= typeof category !== 'undefined' ? category : '' %>" />
+                        <input type="hidden" name="accountStatus" value="<%= typeof accountStatus !== 'undefined' ? accountStatus : '' %>" />
+                        <input type="hidden" name="status" value="<%= typeof status !== 'undefined' ? status : '' %>" />
+                        <input type="hidden" name="sortBy" value="<%= typeof sortBy !== 'undefined' ? sortBy : '' %>" />
+                        <input type="hidden" name="sortDirection" value="<%= typeof sortDirection !== 'undefined' ? sortDirection : 'asc' %>" />
+                        <input type="hidden" name="list" value="<%= typeof list !== 'undefined' ? list : '' %>" />
+                        <button type="submit" name="view" value="grid" class="px-3 py-2 rounded-md text-sm font-medium <%= view === 'grid' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 hover:bg-sky-200' %>">Cards</button>
+                        <button type="submit" name="view" value="list" class="px-3 py-2 rounded-md text-sm font-medium <%= view === 'list' ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 hover:bg-sky-200' %>">Lista</button>
+                    </form>
                 </div>
                 <div class="p-6">
                     <% if (results.length > 0) { %>
@@ -196,15 +229,66 @@
                         <div class="flex items-center">
                             <i class="fas fa-check-circle text-green-500 mr-2"></i>
                             <span class="text-green-800">
-                                Found <strong><%= results.length %></strong> records for "<strong><%= query %></strong>"
-                                <% if (type !== 'all') { %>
-                                    in <strong><%= type === 'name' ? 'Company Name' : type === 'website' ? 'Website' : 'Category' %></strong>
+                                <% if (typeof list !== 'undefined' && list === 'all') { %>
+                                    Found <strong><%= results.length %></strong> distributors
+                                <% } else { %>
+                                    Found <strong><%= results.length %></strong> records for "<strong><%= query %></strong>"
+                                    <% if (type !== 'all') { %>
+                                        in <strong><%= type === 'name' ? 'Company Name' : type === 'website' ? 'Website' : 'Category' %></strong>
+                                    <% } %>
                                 <% } %>
                             </span>
                         </div>
                     </div>
-                    
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <% if (view === 'list') { %>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-gray-600">
+                                        <th class="px-4 py-2">Distribuidor</th>
+                                        <th class="px-4 py-2">Website</th>
+                                        <% if (user.role === 'admin') { %>
+                                            <th class="px-4 py-2">Category</th>
+                                            <th class="px-4 py-2">Account Status</th>
+                                            <th class="px-4 py-2">Status</th>
+                                        <% } %>
+                                        <th class="px-4 py-2">Manager</th>
+                                        <th class="px-4 py-2">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <% results.forEach(function(record) { %>
+                                        <tr class="border-t">
+                                            <td class="px-4 py-2"><%= record.Name || 'N/A' %></td>
+                                            <td class="px-4 py-2">
+                                                <% if (record.Website) { %>
+                                                    <a href="<%= record.Website.startsWith('http') ? record.Website : 'http://' + record.Website %>" target="_blank" class="text-sky-600 hover:text-sky-800">
+                                                        <%= record.Website %>
+                                                    </a>
+                                                <% } else { %>
+                                                    <span class="text-gray-400">N/A</span>
+                                                <% } %>
+                                            </td>
+                                            <% if (user.role === 'admin') { %>
+                                                <td class="px-4 py-2"><%= record['CATEGORÍA'] || 'N/A' %></td>
+                                                <td class="px-4 py-2"><%= record['Account Request Status'] || 'N/A' %></td>
+                                                <td class="px-4 py-2"><%= record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A' %></td>
+                                            <% } %>
+                                            <td class="px-4 py-2"><%= record.Responsable || 'N/A' %></td>
+                                            <td class="px-4 py-2">
+                                                <% if (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)) { %>
+                                                    <a href="/edit/<%= record._realIndex %>" class="text-blue-600 hover:text-blue-800">Editar</a>
+                                                <% } else { %>
+                                                    <span class="text-gray-400">-</span>
+                                                <% } %>
+                                            </td>
+                                        </tr>
+                                    <% }); %>
+                                </tbody>
+                            </table>
+                        </div>
+                    <% } else { %>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                                 <% results.forEach(function(record) { %>
                                 <div class="bg-white rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
                                     <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-4 py-3 rounded-t-xl flex justify-between items-center">
@@ -333,14 +417,19 @@
                                 </div>
                                 <% }); %>
                             </div>
+                    <% } %>
                      <% } else { %>
                     <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6">
                         <div class="flex items-center">
                             <i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>
                             <span class="text-yellow-800">
-                                No records found for "<strong><%= query %></strong>"
-                                <% if (type !== 'all') { %>
-                                    in <strong><%= type === 'name' ? 'Company Name' : type === 'website' ? 'Website' : 'Category' %></strong>
+                                <% if (typeof list !== 'undefined' && list === 'all') { %>
+                                    No distributors found
+                                <% } else { %>
+                                    No records found for "<strong><%= query %></strong>"
+                                    <% if (type !== 'all') { %>
+                                        in <strong><%= type === 'name' ? 'Company Name' : type === 'website' ? 'Website' : 'Category' %></strong>
+                                    <% } %>
                                 <% } %>
                             </span>
                         </div>
@@ -375,6 +464,7 @@
                     <input type="hidden" name="category" value="<%= typeof category !== 'undefined' ? category : '' %>" />
                     <input type="hidden" name="accountStatus" value="<%= typeof accountStatus !== 'undefined' ? accountStatus : '' %>" />
                     <input type="hidden" name="status" value="<%= typeof status !== 'undefined' ? status : '' %>" />
+                    <input type="hidden" name="list" value="<%= typeof list !== 'undefined' ? list : '' %>" />
 
                     <div>
                         <label class="block textxs font-medium text-gray-700 mb-1">Sort By</label>

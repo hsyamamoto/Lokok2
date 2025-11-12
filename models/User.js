@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 class User {
-    constructor(id, email, password, role, name, createdBy = null) {
+    constructor(id, email, password, role, name, createdBy = null, allowedCountries = null) {
         this.id = id;
         this.email = email;
         this.password = password;
@@ -12,6 +12,9 @@ class User {
         this.createdBy = createdBy; // ID do usuário que criou este usuário
         this.createdAt = new Date();
         this.isActive = true;
+        this.allowedCountries = Array.isArray(allowedCountries) && allowedCountries.length > 0
+            ? allowedCountries
+            : (this.role === 'admin' ? ['US','CA','MX'] : ['US']);
     }
 
     // Método para verificar senha
@@ -44,7 +47,8 @@ class User {
             name: this.name,
             createdBy: this.createdBy,
             createdAt: this.createdAt,
-            isActive: this.isActive
+            isActive: this.isActive,
+            allowedCountries: this.allowedCountries
         };
     }
 }
@@ -78,7 +82,17 @@ class UserRepository {
                 const data = fs.readFileSync(this.usersFilePath, 'utf8');
                 const userData = JSON.parse(data);
                 this.users = userData.users.map(u => {
-                    const user = new User(u.id, u.email, u.password, u.role, u.name, u.createdBy);
+                    const user = new User(
+                        u.id,
+                        u.email,
+                        u.password,
+                        u.role,
+                        u.name,
+                        u.createdBy,
+                        Array.isArray(u.allowedCountries) && u.allowedCountries.length > 0
+                            ? u.allowedCountries
+                            : (u.role === 'admin' ? ['US','CA','MX'] : ['US'])
+                    );
                     user.createdAt = new Date(u.createdAt);
                     user.isActive = u.isActive;
                     return user;
@@ -204,7 +218,10 @@ class UserRepository {
             User.hashPassword(userData.password),
             userData.role,
             userData.name,
-            userData.createdBy
+            userData.createdBy,
+            Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0
+                ? userData.allowedCountries.filter(c => ['US','CA','MX'].includes(c))
+                : (userData.role === 'admin' ? ['US','CA','MX'] : ['US'])
         );
         this.users.push(user);
         this.saveUsers();
@@ -222,6 +239,12 @@ class UserRepository {
                 user.password = User.hashPassword(userData.password);
             }
             user.role = userData.role || user.role;
+            if (Array.isArray(userData.allowedCountries)) {
+                const filtered = userData.allowedCountries.filter(c => ['US','CA','MX'].includes(c));
+                if (filtered.length > 0) {
+                    user.allowedCountries = filtered;
+                }
+            }
             this.saveUsers();
             return user;
         }

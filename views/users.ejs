@@ -152,7 +152,7 @@
                                             <%= user.role === 'admin' ? 'Administrator' : 'Manager' %>
                                         </span>
                                         <% if (user.role !== 'admin' || user.id !== currentUser.id) { %>
-                                        <button onclick="editUser(<%= user.id %>, '<%= user.name %>', '<%= user.email %>', '<%= user.role %>', <%- JSON.stringify(user.allowedCountries || []) %>)" class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors mr-2" title="Edit user">
+                                        <button onclick='editUser(<%- JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role, allowedCountries: (user.allowedCountries || []) }) %>)' class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors mr-2" title="Edit user">
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <button onclick="deleteUser(<%= user.id %>, '<%= user.name %>')" class="text-red-500 hover:text-red-700 p-1 rounded transition-colors" title="Delete user">
@@ -342,13 +342,19 @@
         });
         
         // Edit User Functions
-        function editUser(userId, name, email, role, allowedCountries) {
+        function editUser(user) {
+            const userId = user && user.id;
+            const name = user && user.name;
+            const email = user && user.email;
+            const role = user && user.role;
+            const allowedCountries = Array.isArray(user && user.allowedCountries) ? user.allowedCountries : [];
+
             document.getElementById('editUserId').value = userId;
             document.getElementById('editName').value = name;
             document.getElementById('editEmail').value = email;
             document.getElementById('editRole').value = role;
             document.getElementById('editPassword').value = '';
-            const countries = Array.isArray(allowedCountries) ? allowedCountries.map(c => String(c).toUpperCase()) : [];
+            const countries = allowedCountries.map(c => String(c).toUpperCase());
             const us = document.getElementById('editCountryUS');
             const ca = document.getElementById('editCountryCA');
             const mx = document.getElementById('editCountryMX');

@@ -472,6 +472,57 @@
                     </tbody>
                 </table>
             </div>
+            <!-- Top 5 Seller do mês -->
+            <div class="mt-6 bg-white shadow rounded-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800">TOP 5 Seller do mês</h2>
+                    <form id="topMonthForm" method="get" action="/dashboard" class="flex items-center gap-3">
+                        <label for="topMonth" class="text-sm text-gray-600">Mês:</label>
+                        <select id="topMonth" name="topMonth" class="border border-gray-300 rounded-md px-2 py-1 text-sm">
+                            <% (topMonthOptions || []).forEach(function(m) { %>
+                                <option value="<%= m %>" <%= (selectedTopMonth === m) ? 'selected' : '' %>><%= m %></option>
+                            <% }) %>
+                        </select>
+                        <button type="submit" class="inline-flex items-center px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors duration-200">
+                            Atualizar
+                        </button>
+                    </form>
+                </div>
+                <!-- Chart: Top 5 Sellers (horizontal bar) -->
+                <div class="mb-6">
+                    <% if ((topManagerEntries || []).length > 0) { %>
+                        <div class="flex justify-center">
+                            <canvas id="top5SellersChart" width="600" height="300" class="max-w-2xl"></canvas>
+                        </div>
+                    <% } else { %>
+                        <p class="text-sm text-gray-500">Sem dados para o mês selecionado.</p>
+                    <% } %>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responsable</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <% if ((topManagerEntries || []).length === 0) { %>
+                                <tr>
+                                    <td class="px-6 py-4 text-sm text-gray-600" colspan="2">Sem dados para o mês selecionado.</td>
+                                </tr>
+                            <% } else { %>
+                                <% topManagerEntries.forEach(function(entry){ %>
+                                    <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900"><%= entry[0] %></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600"><%= entry[1] %></td>
+                                    </tr>
+                                <% }) %>
+                            <% } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             <div class="mt-4 text-center">
                 <a href="/search" class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-sky-300 to-sky-400 text-sky-800 text-sm font-medium rounded-lg hover:from-sky-400 hover:to-sky-500 transition-all duration-200">
                     <i class="fas fa-eye mr-2"></i>
@@ -524,6 +575,61 @@
                 document.getElementById('categoriesChart'),
                 categoriesConfig
             );
+        } catch (e) {}
+
+        // Top 5 Sellers Chart (by selected month)
+        try {
+            const top5Labels = [
+                <% (topManagerEntries || []).forEach(function(entry, idx) { %>
+                    '<%= String(entry[0] || '').replace(/'/g, "\\'") %>'<%= idx < (topManagerEntries.length - 1) ? ',' : '' %>
+                <% }); %>
+            ];
+            const top5Counts = [
+                <% (topManagerEntries || []).forEach(function(entry, idx) { %>
+                    <%= Number(entry[1] || 0) %><%= idx < (topManagerEntries.length - 1) ? ',' : '' %>
+                <% }); %>
+            ];
+            if (top5Labels.length > 0) {
+                const top5Config = {
+                    type: 'bar',
+                    data: {
+                        labels: top5Labels,
+                        datasets: [{
+                            data: top5Counts,
+                            backgroundColor: '#6366F1', // indigo-500
+                            borderColor: '#4F46E5',
+                            borderWidth: 1,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        indexAxis: 'y',
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.parsed.x} registros`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: { precision: 0 }
+                            },
+                            y: {
+                                ticks: { color: '#374151' }
+                            }
+                        }
+                    }
+                };
+                const el = document.getElementById('top5SellersChart');
+                if (el) {
+                    new Chart(el, top5Config);
+                }
+            }
         } catch (e) {}
 
         // Approval actions

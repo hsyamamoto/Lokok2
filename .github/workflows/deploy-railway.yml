@@ -80,7 +80,7 @@ jobs:
           if [ -n "$DEFAULT_ADMIN_ALLOWED_COUNTRIES" ]; then
             railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
           else
-            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX,CN"
+            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
           fi
 
       - name: Print healthcheck URL

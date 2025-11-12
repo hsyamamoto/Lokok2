@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const ALLOWED_COUNTRIES = ['US','CA','MX'];
 
 class User {
     constructor(id, email, password, role, name, createdBy = null, allowedCountries = null) {
@@ -13,9 +14,10 @@ class User {
         this.createdAt = new Date();
         this.isActive = true;
         // Países permitidos por perfil
-        this.allowedCountries = Array.isArray(allowedCountries) && allowedCountries.length > 0
-            ? allowedCountries
-            : (this.role === 'admin' ? ['US', 'CA', 'MX', 'CN'] : ['US']);
+        const normalized = Array.isArray(allowedCountries) ? allowedCountries.map(c => String(c).toUpperCase()) : null;
+        this.allowedCountries = (normalized && normalized.length > 0)
+            ? normalized.filter(c => ALLOWED_COUNTRIES.includes(c))
+            : (this.role === 'admin' ? ALLOWED_COUNTRIES : ['US']);
     }
 
     // Método para verificar senha
@@ -93,7 +95,7 @@ class UserRepository {
                         // manter compatibilidade com arquivos antigos sem allowedCountries
                         Array.isArray(u.allowedCountries) && u.allowedCountries.length > 0
                             ? u.allowedCountries
-                            : (u.role === 'admin' ? ['US', 'CA', 'MX', 'CN'] : ['US'])
+                            : (u.role === 'admin' ? ALLOWED_COUNTRIES : ['US'])
                     );
                     user.createdAt = new Date(u.createdAt);
                     user.isActive = u.isActive;

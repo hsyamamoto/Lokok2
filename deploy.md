@@ -73,7 +73,7 @@ No Railway, vá em **Settings** → **Variables** e adicione:
 ```
 NODE_ENV=production
 SESSION_SECRET=um-segredo-forte-aqui
-DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX,CN
+DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX
 
 # Para usar o Google Drive (arquivo público):
 FORCE_LOCAL_EXCEL=0
@@ -183,7 +183,7 @@ Para garantir que o ambiente de produção espelhe exatamente seu ambiente local
 - Variáveis de ambiente (Railway → Variables):
   - `NODE_ENV=production`
   - `SESSION_SECRET` com valor seguro
-  - `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX,CN`
+  - `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX`
   - Para Drive público: `FORCE_LOCAL_EXCEL=0` + `GOOGLE_DRIVE_FILE_ID=<ID>`
   - Para arquivo privado no Drive: `FORCE_LOCAL_EXCEL=0` + `GOOGLE_DRIVE_FILE_ID` + `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY`
   - Fallback local: `EXCEL_PATH=./data/cached_spreadsheet.xlsx`
@@ -197,7 +197,7 @@ Para garantir que o ambiente de produção espelhe exatamente seu ambiente local
 Observação: o arquivo `data/cached_spreadsheet.xlsx` está no repositório para garantir a mesma base de dados entre local e produção quando `FORCE_LOCAL_EXCEL=1`. Quando `FORCE_LOCAL_EXCEL=0` e `GOOGLE_DRIVE_FILE_ID` está definido, a aplicação baixa e faz cache automático.
 ## Deploy (Railway) e Suporte a Países
 
-Este projeto suporta múltiplos países nas abas do Excel: `Wholesale LOKOK` (US), `Wholesale CANADA`, `Wholesale MEXICO` e `Wholesale CHINA`. O servidor valida e filtra dados com aliases (`US/USA/UNITED STATES`, `CA/CANADA`, `MX/MEXICO`, `CN/CHINA`).
+Este projeto suporta múltiplos países nas abas do Excel: `Wholesale LOKOK` (US), `Wholesale CANADA`, `Wholesale MEXICO`. O servidor valida e filtra dados com aliases (`US/USA/UNITED STATES`, `CA/CANADA`, `MX/MEXICO`).
 
 ### Variáveis de Ambiente Necessárias
 
@@ -210,23 +210,23 @@ Configure as variáveis no Railway ou no arquivo `.env.production`:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`: e-mail da service account (necessário para arquivos privados).
 - `GOOGLE_PRIVATE_KEY`: chave privada da service account (use `\n` para quebras de linha, necessário para arquivos privados).
 - `EXCEL_PATH`: caminho do Excel local de fallback (se Google Drive não estiver configurado).
-- `DEFAULT_ADMIN_ALLOWED_COUNTRIES`: valores padrão permitidos para admin, ex.: `US,CA,MX,CN`.
+- `DEFAULT_ADMIN_ALLOWED_COUNTRIES`: valores padrão permitidos para admin, ex.: `US,CA,MX`.
 
 Veja exemplos em `.env.production.example`.
 
 ### Planilha do Google Drive
 
 Recomendado:
-- Garantir que existam abas por país: `Wholesale LOKOK`, `Wholesale CANADA`, `Wholesale MEXICO`, `Wholesale CHINA`.
-- Alternativamente, incluir coluna `Country` com valores consistentes (ex.: `US`, `CA`, `MX`, `CN`).
+- Garantir que existam abas por país: `Wholesale LOKOK`, `Wholesale CANADA`, `Wholesale MEXICO`.
+- Alternativamente, incluir coluna `Country` com valores consistentes (ex.: `US`, `CA`, `MX`).
 
-O servidor cria abas quando faltam (no cache local). Para escrita no Google Drive, o serviço salva na aba correspondente ao país quando configurado (US/CA/MX/CN). Em arquivos públicos, apenas leitura é garantida; escrita requer permissões (arquivo compartilhado com a service account como Editor).
+O servidor cria abas quando faltam (no cache local). Para escrita no Google Drive, o serviço salva na aba correspondente ao país quando configurado (US/CA/MX). Em arquivos públicos, apenas leitura é garantida; escrita requer permissões (arquivo compartilhado com a service account como Editor).
 
 ### Passos de Validação
 
-1. Defina `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX,CN` e garanta que usuários admin possuam `allowedCountries` coerentes no `users.json`.
+1. Defina `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX` e garanta que usuários admin possuam `allowedCountries` coerentes no `users.json`.
 2. Suba o servidor (`NODE_ENV=production`). Se `GOOGLE_DRIVE_FILE_ID` não estiver configurado, usará `EXCEL_PATH` local.
-3. Faça login como admin, troque para `CN` em `/switch-country` e valide que o dashboard e a busca refletem dados da aba/país correto.
+3. Faça login como admin, troque entre `US`, `CA` e `MX` em `/switch-country` e valide que o dashboard e a busca refletem dados da aba/país correto.
 4. Caso utilize Google Drive, valide o download do Excel e a leitura das abas país.
 
 ### Observações

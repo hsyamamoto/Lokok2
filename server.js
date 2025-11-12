@@ -628,6 +628,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     const categoryStats = {};
     const responsibleStats = {};
     const monthlyStats = {};
+    const monthlyResponsibles = {}; // { 'YYYY-MM': { responsibleName: count } }
     
     filteredData.forEach(record => {
         // Estatísticas por categoria
@@ -656,6 +657,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
                 if (date && !isNaN(date.getTime()) && date.getFullYear() >= 2020 && date.getFullYear() <= 2030) {
                     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                     monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
+                    const respName = record['Responsable'] || 'Não especificado';
+                    if (!monthlyResponsibles[monthKey]) monthlyResponsibles[monthKey] = {};
+                    monthlyResponsibles[monthKey][respName] = (monthlyResponsibles[monthKey][respName] || 0) + 1;
                 } else {
                     // Data inválida - usar distribuição simulada
                     const currentDate = new Date();
@@ -663,6 +667,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
                     const simulatedDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - randomMonthsAgo, 1);
                     const monthKey = `${simulatedDate.getFullYear()}-${String(simulatedDate.getMonth() + 1).padStart(2, '0')}`;
                     monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
+                    const respName = record['Responsable'] || 'Não especificado';
+                    if (!monthlyResponsibles[monthKey]) monthlyResponsibles[monthKey] = {};
+                    monthlyResponsibles[monthKey][respName] = (monthlyResponsibles[monthKey][respName] || 0) + 1;
                 }
             } catch (e) {
                 // Erro ao processar data - usar distribuição simulada
@@ -671,6 +678,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
                 const simulatedDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - randomMonthsAgo, 1);
                 const monthKey = `${simulatedDate.getFullYear()}-${String(simulatedDate.getMonth() + 1).padStart(2, '0')}`;
                 monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
+                const respName = record['Responsable'] || 'Não especificado';
+                if (!monthlyResponsibles[monthKey]) monthlyResponsibles[monthKey] = {};
+                monthlyResponsibles[monthKey][respName] = (monthlyResponsibles[monthKey][respName] || 0) + 1;
             }
         } else {
             // Sem data - usar distribuição simulada
@@ -679,6 +689,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             const simulatedDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - randomMonthsAgo, 1);
             const monthKey = `${simulatedDate.getFullYear()}-${String(simulatedDate.getMonth() + 1).padStart(2, '0')}`;
             monthlyStats[monthKey] = (monthlyStats[monthKey] || 0) + 1;
+            const respName = record['Responsable'] || 'Não especificado';
+            if (!monthlyResponsibles[monthKey]) monthlyResponsibles[monthKey] = {};
+            monthlyResponsibles[monthKey][respName] = (monthlyResponsibles[monthKey][respName] || 0) + 1;
         }
     });
 
@@ -708,6 +721,16 @@ app.get('/dashboard', requireAuth, async (req, res) => {
             break;
     }
     
+    // Prepare Top-5 managers by selected month
+    const topMonthOptions = Object.keys(monthlyStats).sort((a,b) => b.localeCompare(a));
+    const selectedTopMonth = (req.query.topMonth && topMonthOptions.includes(req.query.topMonth)) ? req.query.topMonth : (topMonthOptions[0] || '');
+    let topManagerEntries = [];
+    if (selectedTopMonth && monthlyResponsibles[selectedTopMonth]) {
+        topManagerEntries = Object.entries(monthlyResponsibles[selectedTopMonth])
+            .sort((a,b) => b[1] - a[1])
+            .slice(0,5);
+    }
+
     const stats = {
         totalRecords: filteredData.length,
         categoryStats,
@@ -744,6 +767,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         monthlySort: monthlySort || 'period_desc',
         monthlyStart: monthlyStart || '',
         monthlyEnd: monthlyEnd || '',
+        topMonthOptions,
+        selectedTopMonth,
+        topManagerEntries,
         recentStart: recentStart || '',
         recentEnd: recentEnd || '',
         pendingApprovals,
@@ -1071,7 +1097,8 @@ app.get('/search', requireAuth, async (req, res) => {
     
     // Novos filtros: Account Status, Buyer, Category e Status + ordenação
     const { accountStatus = '', buyer = '', category = '', status = '', sortBy = '', sortDirection = 'asc', view = 'grid', submitted = '', listAll = '' } = req.query;
-    console.log('[SEARCH DEBUG] Params:', { query, type, accountStatus, buyer, category, status, sortBy, sortDirection, view, submitted, listAll });
+    const list = (req.query.list || '');
+    console.log('[SEARCH DEBUG] Params:', { query, type, accountStatus, buyer, category, status, sortBy, sortDirection, view, submitted, listAll, list });
 
     // Normalização e getField já declarados acima no início da rota /search para evitar TDZ e duplicações.
 
@@ -1154,10 +1181,14 @@ app.get('/search', requireAuth, async (req, res) => {
 
     // Combinar resultados (interseção) quando houver filtros avançados e termo de busca
     let results;
-    const forceAll = (listAll === '1') || isAllQuery || (submitted === '1' && !((query || '').trim()) && !hasAdvancedFilters);
-    if (forceAll) {
+    const forceAll = isAllQuery || (submitted === '1' && !((query || '').trim()) && !hasAdvancedFilters);
+    if (listAll === '1' || ((list || '').toLowerCase() === 'all')) {
+        // When user requests "List ALL", return all but still respect advanced filters if present
+        results = hasAdvancedFilters ? resultsAdvanced : data;
+        console.log('[SEARCH DEBUG] ListALL requested (listAll/list): returning', hasAdvancedFilters ? 'advanced-filtered results' : 'all records');
+    } else if (forceAll) {
         results = data;
-        console.log('[SEARCH DEBUG] Force ALL results: returning all records (listAll checkbox or special ALL or submitted empty)');
+        console.log('[SEARCH DEBUG] Force ALL results: returning all records (special ALL or submitted empty)');
     } else if (hasAdvancedFilters && (query && query.trim())) {
         const idsAdvanced = new Set(resultsAdvanced.map(r => r._realIndex));
         results = resultsQuery.filter(r => idsAdvanced.has(r._realIndex));

@@ -185,12 +185,11 @@
                         </label>
                         <select id="status" name="status" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             <option value="" <%= (typeof status === 'undefined' || status === '') ? 'selected' : '' %>>Any</option>
-                            <option value="PENDING APPROVAL" <%= (typeof status !== 'undefined' && status === 'PENDING APPROVAL') ? 'selected' : '' %>>PENDING APPROVAL</option>
-                            <option value="BUYING" <%= (typeof status !== 'undefined' && status === 'BUYING') ? 'selected' : '' %>>BUYING</option>
-                            <option value="CHECKING" <%= (typeof status !== 'undefined' && status === 'CHECKING') ? 'selected' : '' %>>CHECKING</option>
-                            <option value="NOT COMPETITIVE" <%= (typeof status !== 'undefined' && status === 'NOT COMPETITIVE') ? 'selected' : '' %>>NOT COMPETITIVE</option>
-                            <option value="NOT INTERESTING" <%= (typeof status !== 'undefined' && status === 'NOT INTERESTING') ? 'selected' : '' %>>NOT INTERESTING</option>
-                            <option value="RED FLAG" <%= (typeof status !== 'undefined' && status === 'RED FLAG') ? 'selected' : '' %>>RED FLAG</option>
+                            <% if (Array.isArray(statusList)) { %>
+                                <% statusList.forEach(function(s) { %>
+                                    <option value="<%= s %>" <%= (typeof status !== 'undefined' && status === s) ? 'selected' : '' %>><%= s %></option>
+                                <% }) %>
+                            <% } %>
                         </select>
                     </div>
 

@@ -1244,6 +1244,8 @@ app.get('/search', requireAuth, async (req, res) => {
     
     const managersList = collectUniqueValues(data, ['Responsable','Manager','Buyer']);
     const accountStatusList = collectUniqueValues(data, ['Account Request Status','Account Status']);
+    // Lista dinâmica de STATUS geral (coleta todos os valores existentes no dataset)
+    const statusList = collectUniqueValues(data, [fieldStatusName]);
     
     // Persistir contadores de debug na sessão e adicionar rota /logs que renderiza a nova aba de Logs. Remover envio de debugCounts para a página de busca.
     const debugCounts = {
@@ -1269,6 +1271,7 @@ app.get('/search', requireAuth, async (req, res) => {
         submitted,
         managersList,
         accountStatusList,
+        statusList,
         listAll
     });
 });

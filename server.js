@@ -7,8 +7,11 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const { User, UserRepository } = require('./models/User');
-const { pool, initializeDatabase } = require('./database');
+const { pool, initializeDatabase, getJsonSuppliers, insertJsonSupplier, migrateExcelToJson, deduplicateSuppliersJson } = require('./database');
 const GoogleDriveService = require('./googleDriveService');
+const http = require('http');
+const https = require('https');
+const axios = require('axios');
 
 const app = express();
 try { fs.mkdirSync('./logs', { recursive: true }); } catch {}
@@ -76,6 +79,38 @@ app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
 
+// Rota de debug para inspecionar qual Excel está sendo usado e contagem por aba
+app.get('/debug/excel', (req, res) => {
+    try {
+        const excelPath = process.env.EXCEL_PATH || '';
+        const exists = excelPath && fs.existsSync(excelPath);
+        const info = {
+            excelPath,
+            exists,
+            forceLocalExcel: process.env.FORCE_LOCAL_EXCEL,
+            googleDriveFileId: process.env.GOOGLE_DRIVE_FILE_ID ? 'SET' : 'EMPTY',
+        };
+        if (exists) {
+            const wb = XLSX.readFile(excelPath, { sheetStubs: true });
+            info.sheets = wb.SheetNames;
+            const counts = {};
+            for (const name of wb.SheetNames) {
+                try {
+                    const ws = wb.Sheets[name];
+                    const rows = XLSX.utils.sheet_to_json(ws);
+                    counts[name] = rows.length;
+                } catch (e) {
+                    counts[name] = `error: ${e?.message || String(e)}`;
+                }
+            }
+            info.counts = counts;
+        }
+        res.json(info);
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
 // Configuração do EJS como template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -99,27 +134,106 @@ if (NODE_ENV === 'production' && process.env.GOOGLE_DRIVE_FILE_ID) {
         console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
     }
 } else {
-    // Em desenvolvimento, resolver dinamicamente o caminho do Excel local
-    const candidates = [
-        process.env.EXCEL_PATH,
-        path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
-        path.join(__dirname, 'Lokok2', 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
-        path.join(__dirname, 'data', 'cached_spreadsheet.xlsx'),
-        path.join(__dirname, 'Lokok2', 'data', 'cached_spreadsheet.xlsx'),
-    ].filter(Boolean);
+    // Resolver dinamicamente o caminho do Excel local
+    // Suporte a planilha pública do Google: baixar para cached_spreadsheet.xlsx quando EXCEL_DOWNLOAD_URL estiver definido
+    try {
+        const publicExcelUrl = process.env.EXCEL_DOWNLOAD_URL;
+        if (publicExcelUrl) {
+            const dataDir = path.join(__dirname, 'data');
+            try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+            const cachedPath = path.join(dataDir, 'cached_spreadsheet.xlsx');
+            console.log('🔧 [PRODUCTION DEBUG] EXCEL_DOWNLOAD_URL detectado. Baixando planilha pública...');
+            axios.get(publicExcelUrl, { responseType: 'arraybuffer' })
+                .then((resp) => {
+                    try {
+                        fs.writeFileSync(cachedPath, resp.data);
+                        EXCEL_PATH = cachedPath;
+                        console.log('✅ [PRODUCTION DEBUG] Planilha pública baixada em:', cachedPath);
+                    } catch (fileErr) {
+                        console.warn('⚠️ [PRODUCTION DEBUG] Falha ao salvar planilha pública:', fileErr?.message);
+                    }
+                })
+                .catch((err) => {
+                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao baixar planilha pública:', err?.message);
+                });
+        }
+    } catch (e) {
+        console.warn('⚠️ [PRODUCTION DEBUG] Falha inesperada ao iniciar download da planilha pública:', e?.message);
+    }
+
+    const forceLocalExcel = process.env.FORCE_LOCAL_EXCEL === '1' || process.env.FORCE_LOCAL_EXCEL === 'true';
+
+    // Suporte: se EXCEL_PATH for uma URL e FORCE_LOCAL_EXCEL=0, baixar para cache local
+    try {
+        const maybeUrl = process.env.EXCEL_PATH;
+        const isHttp = typeof maybeUrl === 'string' && /^https?:\/\//i.test(maybeUrl);
+        if (!forceLocalExcel && isHttp) {
+            const dataDir = path.join(__dirname, 'data');
+            try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+            const cachedPath = path.join(dataDir, 'cached_spreadsheet.xlsx');
+            console.log('🔧 [PRODUCTION DEBUG] EXCEL_PATH é URL e FORCE_LOCAL_EXCEL=0. Baixando planilha pública via EXCEL_PATH...');
+            axios.get(maybeUrl, { responseType: 'arraybuffer' })
+                .then((resp) => {
+                    try {
+                        fs.writeFileSync(cachedPath, resp.data);
+                        process.env.EXCEL_PATH = cachedPath;
+                        console.log('✅ [PRODUCTION DEBUG] Planilha (EXCEL_PATH URL) baixada em:', cachedPath);
+                    } catch (fileErr) {
+                        console.warn('⚠️ [PRODUCTION DEBUG] Falha ao salvar cache de EXCEL_PATH:', fileErr?.message);
+                    }
+                })
+                .catch((err) => {
+                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao baixar EXCEL_PATH (URL):', err?.message);
+                });
+        }
+    } catch (e) {
+        console.warn('⚠️ [PRODUCTION DEBUG] Erro ao processar EXCEL_PATH como URL:', e?.message);
+    }
+
+    // Quando FORCE_LOCAL_EXCEL=1, priorizar estritamente EXCEL_PATH para evitar cair em bases antigas
+    let candidates;
+    if (forceLocalExcel) {
+        candidates = [
+            // Primeiro: EXCEL_PATH (obrigatório quando FORCE_LOCAL_EXCEL=1)
+            process.env.EXCEL_PATH,
+            // Depois: planilha oficial (1109) caso EXCEL_PATH não esteja definido
+            path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
+            path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx')
+        ].filter(Boolean);
+    } else {
+        // Quando não estamos forçando arquivo local, priorize EXCEL_PATH (que pode ser URL baixada para cache)
+        // e o arquivo de cache, depois caia para arquivos oficiais/legados
+        candidates = [
+            process.env.EXCEL_PATH,
+            path.join(__dirname, 'data', 'cached_spreadsheet.xlsx'),
+            path.join(__dirname, 'Lokok2', 'data', 'cached_spreadsheet.xlsx'),
+            path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
+            path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx'),
+            path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
+            path.join(__dirname, 'Lokok2', 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
+        ].filter(Boolean);
+    }
+
+    console.log('📄 [PRODUCTION DEBUG] Candidatos para EXCEL_PATH (na ordem de prioridade):', candidates);
     for (const p of candidates) {
         try {
             if (fs.existsSync(p)) {
                 EXCEL_PATH = p;
+                console.log('✅ [PRODUCTION DEBUG] Selecionado arquivo Excel:', EXCEL_PATH);
                 break;
             }
         } catch (e) {
             // ignora erros de acesso
         }
     }
+
     if (EXCEL_PATH) {
         console.log('📊 [PRODUCTION DEBUG] Configurado para usar arquivo Excel local:', EXCEL_PATH);
     } else {
+        if (forceLocalExcel && process.env.EXCEL_PATH) {
+            console.error('❌ [PRODUCTION DEBUG] FORCE_LOCAL_EXCEL=1 mas o arquivo definido em EXCEL_PATH não foi encontrado:', process.env.EXCEL_PATH);
+            console.error('❌ [PRODUCTION DEBUG] Verifique se o arquivo foi incluído no deploy e o caminho está correto.');
+        }
         console.warn('⚠️ [PRODUCTION DEBUG] Nenhum arquivo Excel encontrado nos caminhos padrão. As buscas retornarão 0 resultados.');
     }
 }
@@ -233,7 +347,8 @@ function getSheetNameForCountry(country) {
     if (c === 'CA') return 'Wholesale CANADA';
     if (c === 'MX') return 'Wholesale MEXICO';
     if (c === 'CN') return 'Wholesale CHINA';
-    return 'Wholesale LOKOK'; // US padrão
+    // US: usar a aba principal "Wholesale LOKOK"
+    return 'Wholesale LOKOK';
 }
 
 // Aliases por país para filtragem robusta quando a planilha usa nomes completos
@@ -321,33 +436,51 @@ function ensureCountrySheets(workbook) {
 // Função para ler dados da planilha
 async function readExcelData(selectedCountry) {
     try {
+        // Tratar seleção especial de "ALL" como todos os países
+        const selectedForSource = (String(selectedCountry || '').toUpperCase() === 'ALL') ? null : selectedCountry;
+        // Prefer database JSONB when enabled
+        const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
+        const useDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof getJsonSuppliers === 'function';
+        if (useDb) {
+            // Sem país específico -> retornar todos
+            if (!selectedForSource) {
+                const rows = await getJsonSuppliers();
+                return rows;
+            }
+            const aliases = getCountryAliases(selectedForSource);
+            const rows = await getJsonSuppliers(Array.isArray(aliases) ? aliases : [selectedForSource]);
+            return rows;
+        }
         let allData = [];
-        const sheetMap = {
-            US: 'Wholesale LOKOK',
-            CA: 'Wholesale CANADA',
-            MX: 'Wholesale MEXICO',
-            CN: 'Wholesale CHINA'
-        };
-        const targetSheet = selectedCountry && sheetMap[selectedCountry] ? sheetMap[selectedCountry] : null;
+        // Determinar aba alvo com a mesma lógica usada em escrita/Google Drive
+        const targetSheet = selectedForSource ? getSheetNameForCountry(selectedForSource) : null;
         
         if (NODE_ENV === 'production' && googleDriveService) {
             // Em produção, usar Google Drive
             console.log('📥 [PRODUCTION DEBUG] Carregando dados do Google Drive...');
             try {
-                allData = await googleDriveService.readSpreadsheetData(selectedCountry);
+                // Para ALL, passar undefined para ler todas as abas preferidas
+                allData = await googleDriveService.readSpreadsheetData(selectedForSource || undefined);
                 console.log('✅ [PRODUCTION DEBUG] Dados carregados do Google Drive:', allData.length, 'registros');
-                // Filtrar por país se solicitado (quando houver campo Country)
-                // Para US, manter todos os registros da aba padrão sem filtrar
-                if (selectedCountry && selectedCountry !== 'US') {
+                // Filtrar por país quando selecionado; para ALL, manter apenas registros com Country explícito dos países suportados
+                if (selectedForSource) {
                     const before = allData.length;
-                    const aliases = getCountryAliases(selectedCountry);
+                    const aliases = getCountryAliases(selectedForSource);
                     allData = allData.filter(r => {
                         const c = r.Country || r.PAIS || r.País || r['COUNTRY'];
-                        const cu = c ? String(c).toUpperCase() : '';
-                        // Quando há país selecionado, não incluir registros sem país explícito
+                        const cu = c ? String(c).toUpperCase().trim() : '';
                         return c ? aliases.some(a => cu.includes(a)) : false;
                     });
-                    console.log(`[PRODUCTION DEBUG] Filtro por país (${selectedCountry}) aplicado: ${before} -> ${allData.length}`);
+                    console.log(`[PRODUCTION DEBUG] Filtro por país (${selectedForSource}) aplicado: ${before} -> ${allData.length}`);
+                } else {
+                    const before = allData.length;
+                    const allowed = ['US','CA','MX','CN'];
+                    allData = allData.filter(r => {
+                        const c = r.Country || r.PAIS || r.País || r['COUNTRY'];
+                        const cu = c ? String(c).toUpperCase().trim() : '';
+                        return allowed.includes(cu);
+                    });
+                    console.log(`[PRODUCTION DEBUG] Filtro ALL (Country explícito em ${allowed.join(', ')}) aplicado: ${before} -> ${allData.length}`);
                 }
             } catch (driveError) {
                 console.error('❌ [PRODUCTION DEBUG] Erro ao carregar do Google Drive:', driveError);
@@ -358,7 +491,8 @@ async function readExcelData(selectedCountry) {
                     const workbook = XLSX.readFile(EXCEL_PATH);
                     // Garantir abas de país (CA/MX) existam mesmo vazias
                     const ensured = ensureCountrySheets(workbook);
-                    if (ensured.changed) {
+                    const shouldPersistEnsure = /cached_spreadsheet\.xlsx$/i.test(EXCEL_PATH || '');
+                    if (ensured.changed && shouldPersistEnsure) {
                         try { XLSX.writeFile(workbook, EXCEL_PATH); } catch (_) {}
                     }
                     const sheetNames = workbook.SheetNames || [];
@@ -367,7 +501,7 @@ async function readExcelData(selectedCountry) {
                     const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'];
                     const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
                     
-                    if (selectedCountry && targetSheet && sheetNames.includes(targetSheet)) {
+                    if (selectedForSource && targetSheet && sheetNames.includes(targetSheet)) {
                         console.log('[PRODUCTION DEBUG] Lendo aba específica para país selecionado:', targetSheet);
                         const ws = workbook.Sheets[targetSheet];
                         const rows = XLSX.utils.sheet_to_json(ws);
@@ -404,7 +538,8 @@ async function readExcelData(selectedCountry) {
             const workbook = XLSX.readFile(EXCEL_PATH);
             // Garantir abas de país (CA/MX) existam mesmo vazias
             const ensured = ensureCountrySheets(workbook);
-            if (ensured.changed) {
+            const shouldPersistEnsure = /cached_spreadsheet\.xlsx$/i.test(EXCEL_PATH || '');
+            if (ensured.changed && shouldPersistEnsure) {
                 try { XLSX.writeFile(workbook, EXCEL_PATH); } catch (_) {}
             }
             const sheetNames = workbook.SheetNames || [];
@@ -414,16 +549,40 @@ async function readExcelData(selectedCountry) {
             const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'];
             const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
 
-            if (selectedCountry && targetSheet && sheetNames.includes(targetSheet)) {
-                const ws = workbook.Sheets[targetSheet];
-                const rows = XLSX.utils.sheet_to_json(ws);
-                console.log('[PRODUCTION DEBUG] Lendo aba selecionada:', targetSheet, 'Registros:', rows.length);
-                allData = allData.concat(rows);
-            } else if (existingPreferred.length > 0) {
+            if (selectedForSource) {
+                // Escolher a aba correta pelo país, mesmo que targetSheet não tenha sido passado
+                let effectiveTarget = (targetSheet && sheetNames.includes(targetSheet)) ? targetSheet : getSheetNameForCountry(selectedForSource);
+                if (effectiveTarget && sheetNames.includes(effectiveTarget)) {
+                    const ws = workbook.Sheets[effectiveTarget];
+                    const rows = XLSX.utils.sheet_to_json(ws);
+                    console.log('[PRODUCTION DEBUG] Lendo aba por país (sem filtro por Country):', selectedForSource, '→', effectiveTarget, 'Registros:', rows.length);
+                    // Não aplicar filtro por Country; contar por aba específica
+                    allData = allData.concat(rows);
+                    // Caso Canadá, também incluir outras abas relacionadas (ex.: SEARCHING FILE CANADA)
+                    if (String(selectedForSource).toUpperCase() === 'CA') {
+                        const extraCanadaSheets = ['SEARCHING FILE CANADA'];
+                        for (const extra of extraCanadaSheets) {
+                            if (sheetNames.includes(extra)) {
+                                try {
+                                    const wsExtra = workbook.Sheets[extra];
+                                    const rowsExtra = XLSX.utils.sheet_to_json(wsExtra);
+                                    console.log('[PRODUCTION DEBUG] Lendo aba extra de Canadá:', extra, 'Registros:', rowsExtra.length);
+                                    allData = allData.concat(rowsExtra);
+                                } catch (e) {
+                                    console.warn('[PRODUCTION DEBUG] Falha ao ler aba extra de Canadá:', extra, e?.message);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    console.warn('[PRODUCTION DEBUG] Aba para país não encontrada, retornando vazio:', selectedForSource, 'targetSheet:', targetSheet);
+                }
+            } else if (!selectedForSource && existingPreferred.length > 0) {
+                // Sem país selecionado (ALL): concatenar abas preferidas SEM filtrar por Country
                 for (const name of existingPreferred) {
                     const ws = workbook.Sheets[name];
                     const rows = XLSX.utils.sheet_to_json(ws);
-                    console.log('[PRODUCTION DEBUG] Lendo aba preferida:', name, 'Registros:', rows.length);
+                    console.log('[PRODUCTION DEBUG] Lendo aba preferida (ALL sem filtro):', name, 'Registros:', rows.length);
                     allData = allData.concat(rows);
                 }
             } else {
@@ -830,6 +989,103 @@ app.get('/bulk-upload', requireAuth, requireManagerOrAdmin, (req, res) => {
     res.render('bulk-upload', { user: req.session.user });
 });
 
+// Rota de debug para verificar contagens por país diretamente do backend
+app.get('/api/debug-counts', requireAuth, async (req, res) => {
+    try {
+        const allowedCountries = normalizeAllowedCountries(req.session.user?.allowedCountries);
+        const selectedCountry = req.session.selectedCountry || (allowedCountries[0] || 'US');
+        const us = await readExcelData('US');
+        const ca = await readExcelData('CA');
+        const mx = await readExcelData('MX');
+        const cn = await readExcelData('CN');
+        const allCount = us.length + ca.length + mx.length + cn.length;
+        // Diagnóstico detalhado por aba e distribuição de Country
+        let excelInfo = null;
+        try {
+            if (fs.existsSync(EXCEL_PATH)) {
+                const wb = XLSX.readFile(EXCEL_PATH);
+                const sheetNames = wb.SheetNames || [];
+                const preferred = ['Wholesale LOKOK','Wholesale CANADA','Wholesale MEXICO','Wholesale CHINA'];
+                const existingPreferred = preferred.filter(n => sheetNames.includes(n));
+                const perSheetCounts = {};
+                const countryHistogram = {};
+                for (const name of sheetNames) {
+                    try {
+                        const ws = wb.Sheets[name];
+                        const rows = XLSX.utils.sheet_to_json(ws);
+                        perSheetCounts[name] = rows.length;
+                        // Histograma de Country (limitado para depuração)
+                        const hist = {};
+                        for (const r of rows) {
+                            const c = r.Country || r.PAIS || r.País || r['COUNTRY'] || '';
+                            const key = String(c || '').trim().toUpperCase() || '(BLANK)';
+                            hist[key] = (hist[key] || 0) + 1;
+                        }
+                        // ordenar chaves por contagem desc e limitar a 10
+                        const sorted = Object.entries(hist).sort((a,b) => b[1]-a[1]).slice(0, 10);
+                        countryHistogram[name] = Object.fromEntries(sorted);
+                    } catch (_) {}
+                }
+                // Filtragem específica: US na aba LOKOK (antes/depois)
+                let usFromLokokUnfiltered = null;
+                let usFromLokokFiltered = null;
+                if (sheetNames.includes('Wholesale LOKOK')) {
+                    const ws = wb.Sheets['Wholesale LOKOK'];
+                    const rows = XLSX.utils.sheet_to_json(ws);
+                    usFromLokokUnfiltered = rows.length;
+                    const aliases = getCountryAliases('US');
+                    const filtered = rows.filter(r => {
+                        const c = r.Country || r.PAIS || r.País || r['COUNTRY'];
+                        const cu = c ? String(c).toUpperCase() : '';
+                        return c ? aliases.some(a => cu.includes(a)) : false;
+                    });
+                    usFromLokokFiltered = filtered.length;
+                }
+                excelInfo = {
+                    excelPath: EXCEL_PATH,
+                    sheetNames,
+                    existingPreferred,
+                    perSheetCounts,
+                    countryHistogram,
+                    usFromLokokUnfiltered,
+                    usFromLokokFiltered,
+                };
+            }
+        } catch (excelErr) {
+            excelInfo = { error: excelErr?.message || String(excelErr) };
+        }
+
+            res.json({
+                selectedCountry,
+                counts: {
+                    US: us.length,
+                    CA: ca.length,
+                    MX: mx.length,
+                    CN: cn.length
+                },
+                excelInfo
+            });
+    } catch (e) {
+        console.error('[DEBUG] Erro em /api/debug-counts:', e);
+        res.status(500).json({ error: 'Erro interno' });
+    }
+});
+
+// Health-check simples (sem autenticação) para validar servidor/porta
+app.get('/healthz', (req, res) => {
+    try {
+        const info = {
+            ok: true,
+            port: PORT,
+            env: NODE_ENV,
+            timestamp: new Date().toISOString()
+        };
+        res.json(info);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e?.message });
+    }
+});
+
 app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => {
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
     const data = await readExcelData(selectedCountry);
@@ -871,9 +1127,16 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         newRecord['Priority: Need Approval'] = priorityDetails.needApproval || 'no';
     }
     
-    data.push(newRecord);
-    
-    const saved = await writeExcelData(data, selectedCountry);
+    let saved = false;
+    const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof insertJsonSupplier === 'function';
+    if (useDb) {
+        // Persist directly to DB JSONB table
+        saved = await insertJsonSupplier(newRecord, selectedCountry, req.session.user);
+    } else {
+        // Fallback to Excel/Drive persistence
+        data.push(newRecord);
+        saved = await writeExcelData(data, selectedCountry);
+    }
     // Fluxo de aprovação: registros com prioridade High sempre precisam de aprovação
     try {
         const isHighPriority = req.body.prioridade === '1' || req.body.prioridade === 1;
@@ -1493,7 +1756,23 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
         }
         
         let recordsAdded = 0;
+        let recordsUpdated = 0;
         const errors = [];
+
+        // Preparar índice para deduplicação: Name/Company Name + Website
+        const normalize = (s) => String(s || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+        const getNameForKey = (rec) => rec['Name'] || rec['Company Name'] || '';
+        const getWebsiteForKey = (rec) => rec['Website'] || '';
+        const makeKey = (rec) => `${normalize(getNameForKey(rec))}|${normalize(getWebsiteForKey(rec))}`;
+        const existingIndex = new Map();
+        for (const rec of existingData) {
+            const key = makeKey(rec);
+            if (key && !existingIndex.has(key)) existingIndex.set(key, rec);
+        }
         
         // Processar cada linha do Excel
         for (let i = 0; i < jsonData.length; i++) {
@@ -1526,14 +1805,35 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
                     'Created_At': new Date().toISOString()
                 };
                 
-                // Validar campos obrigatórios
-                if (!record['Name'] || !record['CATEGORÍA']) {
-                    errors.push(`Row ${i + 2}: Name and CATEGORÍA are required`);
+                // Validar campos obrigatórios (Nome e Website para a chave)
+                const nameForKey = record['Name'] || record['Company Name'] || '';
+                const websiteForKey = record['Website'] || '';
+                if (!nameForKey || String(nameForKey).trim() === '') {
+                    errors.push(`Row ${i + 2}: Name (ou Company Name) é obrigatório`);
                     continue;
                 }
-                
-                existingData.push(record);
-                recordsAdded++;
+                if (!websiteForKey || String(websiteForKey).trim() === '') {
+                    errors.push(`Row ${i + 2}: Website é obrigatório`);
+                    continue;
+                }
+
+                // Deduplicação por Nome+Website: atualizar se já existir, senão adicionar
+                const key = `${normalize(nameForKey)}|${normalize(websiteForKey)}`;
+                const existing = existingIndex.get(key);
+                if (existing) {
+                    // Atualizar campos não vazios
+                    for (const [field, value] of Object.entries(record)) {
+                        if (field === '_rowIndex') continue;
+                        if (value !== undefined && value !== null && String(value).trim() !== '') {
+                            existing[field] = value;
+                        }
+                    }
+                    recordsUpdated++;
+                } else {
+                    existingData.push(record);
+                    existingIndex.set(key, record);
+                    recordsAdded++;
+                }
                 
             } catch (error) {
                 errors.push(`Row ${i + 2}: ${error.message}`);
@@ -1557,7 +1857,8 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
         const response = {
             success: true,
             recordsAdded: recordsAdded,
-            message: `Successfully processed ${recordsAdded} records`
+            recordsUpdated: recordsUpdated,
+            message: `Successfully processed ${recordsAdded} added and ${recordsUpdated} updated`
         };
         
         if (errors.length > 0) {
@@ -1582,16 +1883,27 @@ async function startServer() {
         // Em produção, verificar se Google Drive está configurado
         if (NODE_ENV === 'production') {
             if (process.env.GOOGLE_DRIVE_FILE_ID) {
-                console.log('🔄 Verificando conexão com Google Drive...');
-                try {
-                    await googleDriveService.refreshCache();
-                    console.log('✅ Google Drive configurado com sucesso!');
-                } catch (error) {
-                    console.warn('⚠️ Aviso: Erro ao conectar com Google Drive:', error.message);
-                }
+                console.log('🔄 Verificando conexão com Google Drive (não bloqueante)...');
+                (async () => {
+                    try {
+                        await googleDriveService.refreshCache();
+                        console.log('✅ Google Drive configurado com sucesso!');
+                    } catch (error) {
+                        console.warn('⚠️ Aviso: Erro ao conectar com Google Drive:', error.message);
+                    }
+                })();
             } else {
                 console.warn('⚠️ GOOGLE_DRIVE_FILE_ID não configurado. Usando modo local.');
             }
+        }
+
+        // Inicializar banco quando habilitado
+        const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
+        const useDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
+        if (useDb) {
+            console.log('🔄 Inicializando banco de dados (JSONB)...');
+            await initializeDatabase();
+            console.log('✅ Banco de dados inicializado.');
         }
         
         app.listen(PORT, '0.0.0.0', () => {
@@ -1808,8 +2120,8 @@ app.get('/logs', requireAuth, async (req, res) => {
 app.get('/switch-country', requireAuth, (req, res) => {
     try {
         const raw = (req.query.country || '').toUpperCase();
-        const country = normalizeCountryCode(raw);
         const allowed = normalizeAllowedCountries(req.session.user?.allowedCountries || []);
+        const country = normalizeCountryCode(raw);
         if (!country) {
             return res.redirect('/dashboard');
         }
@@ -1822,5 +2134,456 @@ app.get('/switch-country', requireAuth, (req, res) => {
     } catch (e) {
         console.error('Erro em /switch-country:', e);
         res.redirect('/dashboard');
+    }
+});
+
+// Rota administrativa para forçar atualização do cache do Google Drive
+app.get('/admin/refresh-cache', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        if (!googleDriveService) {
+            console.warn('[PRODUCTION DEBUG] Tentativa de atualizar cache sem Google Drive configurado');
+            return res.status(400).render('error', { user: req.session.user, message: 'Google Drive não está configurado no servidor.' });
+        }
+        console.log('[PRODUCTION DEBUG] Forçando atualização do cache do Google Drive...');
+        await googleDriveService.refreshCache();
+        console.log('[PRODUCTION DEBUG] Cache atualizado com sucesso. Redirecionando para dashboard.');
+        res.redirect('/dashboard');
+    } catch (e) {
+        console.error('Erro em /admin/refresh-cache:', e);
+        res.status(500).render('error', { user: req.session.user, message: 'Erro ao atualizar cache: ' + (e?.message || 'desconhecido') });
+    }
+});
+
+// Helper para baixar arquivo via URL com suporte básico a redirecionamento
+async function downloadFileFromUrl(fileUrl, destPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doRequest = (urlToGet, redirectCount = 0) => {
+        const isHttps = urlToGet.startsWith('https');
+        const client = isHttps ? https : http;
+        const req = client.get(urlToGet, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            if (redirectCount > 5) return reject(new Error('Too many redirects'));
+            const nextUrl = res.headers.location.startsWith('http')
+              ? res.headers.location
+              : new URL(res.headers.location, urlToGet).toString();
+            res.resume();
+            return doRequest(nextUrl, redirectCount + 1);
+          }
+          if (res.statusCode !== 200) {
+            res.resume();
+            return reject(new Error(`Download failed with status ${res.statusCode}`));
+          }
+          const fileStream = fs.createWriteStream(destPath);
+          res.pipe(fileStream);
+          fileStream.on('finish', () => fileStream.close(() => resolve(destPath)));
+          fileStream.on('error', (err) => reject(err));
+        });
+        req.on('error', (err) => reject(err));
+      };
+      doRequest(fileUrl);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// Rota admin para importar/substituir o Excel local via URL
+app.get('/admin/import-excel-from-url', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sourceUrl = (req.query.url || '').trim();
+    if (!sourceUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parâmetro "url" é obrigatório. Ex: /admin/import-excel-from-url?url=https://.../arquivo.xlsx'
+      });
+    }
+    const dataDir = path.join(__dirname, 'data');
+    try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+    const destPath = path.join(dataDir, 'Wholesale Suppliers and Product Opportunities.xlsx');
+    await downloadFileFromUrl(sourceUrl, destPath);
+
+    let totalLokok = 0;
+    try {
+      const wb = XLSX.readFile(destPath);
+      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
+      if (ws) {
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        totalLokok = json.length;
+      }
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: 'Arquivo Excel importado e salvo com sucesso no data/.',
+      dest: destPath,
+      counts: { 'Wholesale LOKOK': totalLokok }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha ao importar Excel', error: err.message });
+  }
+});
+
+// Rota admin para substituir Excel local pelo arquivo oficial do repositório
+// Copia data/lokok2-export-US-20251119.xlsx para data/Wholesale Suppliers and Product Opportunities.xlsx
+app.get('/admin/replace-excel-with-official', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const officialCandidates = [
+      path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
+      path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx')
+    ];
+    const destPath = path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
+
+    let sourcePath = null;
+    for (const p of officialCandidates) {
+      if (fs.existsSync(p)) { sourcePath = p; break; }
+    }
+    if (!sourcePath) {
+      return res.status(404).json({ success: false, message: 'Arquivo oficial não encontrado no servidor.' });
+    }
+
+    try { fs.mkdirSync(path.dirname(destPath), { recursive: true }); } catch {}
+    fs.copyFileSync(sourcePath, destPath);
+
+    let totalLokok = 0;
+    try {
+      const wb = XLSX.readFile(destPath);
+      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
+      if (ws) {
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        totalLokok = json.length;
+      }
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: 'Excel local substituído pelo arquivo oficial.',
+      source: sourcePath,
+      dest: destPath,
+      counts: { 'Wholesale LOKOK': totalLokok }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha ao substituir Excel', error: err.message });
+  }
+});
+
+// Rota aberta, somente quando em produção e FORCE_LOCAL_EXCEL=1
+// Permite substituir o Excel ativo pelo oficial sem autenticação (para alinhamento rápido)
+app.get('/api/replace-excel-with-official-open', async (req, res) => {
+  try {
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(403).json({ success: false, message: 'Disponível apenas em produção' });
+    }
+    if (process.env.FORCE_LOCAL_EXCEL !== '1') {
+      return res.status(403).json({ success: false, message: 'Disponível apenas quando FORCE_LOCAL_EXCEL=1' });
+    }
+
+    const officialCandidates = [
+      path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
+      path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx')
+    ];
+    const destPath = path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
+
+    let sourcePath = null;
+    for (const p of officialCandidates) {
+      if (fs.existsSync(p)) { sourcePath = p; break; }
+    }
+    if (!sourcePath) {
+      return res.status(404).json({ success: false, message: 'Arquivo oficial não encontrado no servidor.' });
+    }
+
+    try { fs.mkdirSync(path.dirname(destPath), { recursive: true }); } catch {}
+    fs.copyFileSync(sourcePath, destPath);
+
+    let totalLokok = 0;
+    try {
+      const wb = XLSX.readFile(destPath);
+      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
+      if (ws) {
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        totalLokok = json.length;
+      }
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: 'Excel local substituído pelo arquivo oficial (open).',
+      source: sourcePath,
+      dest: destPath,
+      counts: { 'Wholesale LOKOK': totalLokok }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha ao substituir Excel (open)', error: err.message });
+  }
+});
+
+// Rota admin para migrar o Excel atual para o PostgreSQL (suppliers_json)
+// Útil após importar um novo arquivo via URL ou upload manual
+app.get('/admin/migrate-excel-to-db', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!(process.env.USE_DB === 'true' || !!process.env.DATABASE_URL)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Banco de dados não está habilitado. Defina USE_DB=true ou configure DATABASE_URL.'
+      });
+    }
+    await migrateExcelToJson();
+    const dedup = await deduplicateSuppliersJson();
+    return res.json({ success: true, message: 'Migração concluída e duplicidades removidas.', dedup });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha na migração para o banco', error: err.message });
+  }
+});
+
+// Rota admin para remover duplicidades da tabela suppliers_json
+app.post('/admin/deduplicate-suppliers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!(process.env.USE_DB === 'true' || !!process.env.DATABASE_URL)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Banco de dados não está habilitado. Defina USE_DB=true ou configure DATABASE_URL.'
+      });
+    }
+    const result = await deduplicateSuppliersJson();
+    return res.json({ success: true, message: 'Deduplicação concluída.', result });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha na deduplicação', error: err.message });
+  }
+});
+
+// Variante GET para facilitar execução manual pelo navegador
+app.get('/admin/deduplicate-suppliers', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!(process.env.USE_DB === 'true' || !!process.env.DATABASE_URL)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Banco de dados não está habilitado. Defina USE_DB=true ou configure DATABASE_URL.'
+      });
+    }
+    const result = await deduplicateSuppliersJson();
+    return res.json({ success: true, message: 'Deduplicação concluída.', result });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha na deduplicação', error: err.message });
+  }
+});
+
+// Rota admin para contar registros por país em suppliers_json
+app.get('/admin/db-counts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!(process.env.USE_DB === 'true' || !!process.env.DATABASE_URL)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Banco de dados não está habilitado. Defina USE_DB=true ou configure DATABASE_URL.'
+      });
+    }
+    const client = await pool.connect();
+    try {
+      const { rows } = await client.query(
+        `SELECT COALESCE(country, 'UNKNOWN') AS country, COUNT(*)::int AS count
+         FROM suppliers_json
+         GROUP BY country
+         ORDER BY count DESC`
+      );
+      const totalRes = await client.query(`SELECT COUNT(*)::int AS total FROM suppliers_json`);
+      const total = totalRes.rows?.[0]?.total || 0;
+      res.json({ success: true, total, byCountry: rows });
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Falha ao consultar contagem por país', error: err.message });
+  }
+});
+
+// Rota admin de diagnóstico da fonte de dados em uso e contagem atual (US)
+app.get('/admin/source-status', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof getJsonSuppliers === 'function';
+    const driveConfigured = !!googleDriveService;
+    const excelPath = EXCEL_PATH || null;
+    const selectedCountry = req.session.selectedCountry || 'US';
+    const source = useDb ? 'database' : (driveConfigured ? 'googleDrive' : 'localExcel');
+    let countsUS = null;
+    try {
+      const dataUS = await readExcelData('US');
+      countsUS = Array.isArray(dataUS) ? dataUS.length : null;
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      env: {
+        NODE_ENV,
+        USE_DB: process.env.USE_DB || null,
+        DATABASE_URL_SET: !!process.env.DATABASE_URL,
+        GOOGLE_DRIVE_FILE_ID_SET: !!process.env.GOOGLE_DRIVE_FILE_ID
+      },
+      source,
+      driveConfigured,
+      excelPath,
+      selectedCountry,
+      countsUS
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Falha ao consultar status da fonte', error: err.message });
+  }
+});
+
+// Rota admin para atualizar o banco a partir do Excel e remover duplicidades
+app.get('/admin/force-db-refresh', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    if (!(process.env.USE_DB === 'true' || !!process.env.DATABASE_URL)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Banco de dados não está habilitado. Defina USE_DB=true ou configure DATABASE_URL.'
+      });
+    }
+    await migrateExcelToJson();
+    const dedup = await deduplicateSuppliersJson();
+    const client = await pool.connect();
+    try {
+      const totalRes = await client.query('SELECT COUNT(*)::int AS total FROM suppliers_json');
+      const total = totalRes.rows?.[0]?.total || 0;
+      const usRes = await client.query(`SELECT COUNT(*)::int AS count FROM suppliers_json WHERE (country ILIKE 'US' OR country ILIKE 'USA' OR country ILIKE 'UNITED STATES')`);
+      const usCount = usRes.rows?.[0]?.count || 0;
+      return res.json({ success: true, message: 'Banco atualizado a partir do Excel e deduplicado.', total, usCount, dedup });
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Falha ao atualizar banco', error: err.message });
+  }
+});
+
+// Rota admin para exportar todos os registros em Excel (por país; padrão US)
+app.get('/admin/export-excel', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const rawCountry = (req.query.country || 'US').toUpperCase();
+    const country = rawCountry === 'ALL' ? 'ALL' : (normalizeCountryCode(rawCountry) || 'US');
+    const data = await readExcelData(country === 'ALL' ? 'ALL' : country);
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(404).json({ success: false, message: `Nenhum registro encontrado para ${country}` });
+    }
+
+    // Cabeçalhos base + união de chaves existentes para garantir "todos os campos"
+    const STATUS_HEADER = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
+    const baseHeaders = [
+      'Name','Website','CATEGORÍA','Account Request Status','DATE','Responsable',
+      STATUS_HEADER,
+      'Description/Notes','Contact Name','Contact Phone','E-Mail','Address','User','PASSWORD',
+      'LLAMAR','PRIO (1 - TOP, 5 - bajo)','Comments','Country','Created_By_User_ID','Created_By_User_Name','Created_At'
+    ];
+    const union = new Set(baseHeaders);
+    for (const r of data) {
+      Object.keys(r || {}).forEach(k => union.add(k));
+    }
+    const headers = Array.from(union);
+
+    // Montar dados em formato AoA (primeira linha cabeçalho, demais linhas valores)
+    const rows = [headers];
+    for (const r of data) {
+      const row = headers.map(h => {
+        const v = r[h];
+        return v === undefined || v === null ? '' : v;
+      });
+      rows.push(row);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    const sheetName = country === 'ALL' ? 'All Countries' : `Wholesale ${country}`;
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `export-${country}-${timestamp}.xlsx`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Erro em /admin/export-excel:', err);
+    return res.status(500).json({ success: false, message: 'Falha ao exportar Excel', error: err.message });
+  }
+});
+
+// Rota admin para listar endpoints disponíveis (diagnóstico rápido em produção)
+app.get('/admin/health-routes', requireAuth, requireAdmin, (req, res) => {
+  try {
+    const routes = [];
+    app._router.stack.forEach((layer) => {
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods)
+          .filter((m) => layer.route.methods[m])
+          .map((m) => m.toUpperCase());
+        routes.push({ path: layer.route.path, methods });
+      }
+    });
+    res.json({ success: true, count: routes.length, routes });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Falha ao listar rotas', error: err.message });
+  }
+});
+
+// RESET TOTAL DA BASE (apenas admin): zera abas preferidas do Excel e limpa suppliers.json
+app.get('/admin/reset-base', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const info = { excelPath: EXCEL_PATH, actions: [] };
+        // Limpar store local de fornecedores (pendências/approvals)
+        try {
+            writeSuppliersStore([]);
+            info.actions.push('suppliers_store_cleared');
+        } catch (e) {
+            console.warn('Aviso: falha ao limpar suppliers store:', e?.message);
+        }
+
+        // Zerar abas preferidas no Excel
+        if (!fs.existsSync(EXCEL_PATH)) {
+            return res.status(500).json({ success: false, message: `Arquivo Excel não encontrado: ${EXCEL_PATH}` });
+        }
+        const wb = XLSX.readFile(EXCEL_PATH);
+        const sheetNames = wb.SheetNames || [];
+        const preferred = ['Wholesale LOKOK','Wholesale CANADA','Wholesale MEXICO','Wholesale CHINA'];
+        const baseWs = sheetNames.includes('Wholesale LOKOK') ? wb.Sheets['Wholesale LOKOK'] : wb.Sheets[sheetNames[0]];
+        const headers = inferHeadersFromWorksheet(baseWs);
+        const emptyAoA = [headers];
+        const emptyWS = XLSX.utils.aoa_to_sheet(emptyAoA);
+        const cleared = {};
+        for (const name of preferred) {
+            try {
+                wb.Sheets[name] = XLSX.utils.aoa_to_sheet(emptyAoA);
+                if (!sheetNames.includes(name)) wb.SheetNames.push(name);
+                cleared[name] = true;
+            } catch (e) {
+                cleared[name] = false;
+            }
+        }
+        XLSX.writeFile(wb, EXCEL_PATH);
+        info.actions.push('excel_preferred_sheets_cleared');
+        info.cleared = cleared;
+        console.log('🧹 [ADMIN] Reset de base concluído:', info);
+        res.json({ success: true, message: 'Base resetada (Excel e suppliers.json)', info });
+    } catch (e) {
+        console.error('❌ [ADMIN] Falha no reset-base:', e);
+        res.status(500).json({ success: false, message: 'Erro ao resetar base', error: e?.message });
+    }
+});
+
+// Rota aberta (sem autenticação) para validar contagens no ambiente de desenvolvimento
+// Usada apenas para conferência rápida quando FORCE_LOCAL_EXCEL=1
+app.get('/api/debug-counts-open', async (req, res) => {
+    try {
+        if (process.env.NODE_ENV !== 'development') {
+            return res.status(403).json({ error: 'Disponível apenas em desenvolvimento' });
+        }
+        if (process.env.FORCE_LOCAL_EXCEL !== '1') {
+            return res.status(403).json({ error: 'Disponível apenas quando FORCE_LOCAL_EXCEL=1' });
+        }
+        const us = await readExcelData('US');
+        const ca = await readExcelData('CA');
+        const mx = await readExcelData('MX');
+        const cn = await readExcelData('CN');
+        res.json({ counts: { US: us.length, CA: ca.length, MX: mx.length, CN: cn.length } });
+    } catch (e) {
+        console.error('[DEBUG] Erro em /api/debug-counts-open:', e);
+        res.status(500).json({ error: 'Erro interno' });
     }
 });

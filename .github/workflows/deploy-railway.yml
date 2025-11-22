@@ -4,6 +4,19 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      EXCEL_DOWNLOAD_URL:
+        description: 'Public XLSX export URL to use for deploy'
+        required: false
+        default: ''
+      EXCEL_PATH:
+        description: 'Excel path or public XLSX URL (server downloads when URL & FORCE_LOCAL_EXCEL=0)'
+        required: false
+        default: ''
+      FORCE_LOCAL_EXCEL:
+        description: 'Set 1 to force local file path; 0 allows URL download'
+        required: false
+        default: '0'
 
 jobs:
   deploy:
@@ -11,6 +24,92 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+          lfs: true
+          submodules: false
+
+      - name: Mark workspace as safe directory (fix git 128)
+        if: always()
+        continue-on-error: true
+        run: |
+          git --version
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          # Add multiple potential workspace paths to safe.directory
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "/github/workspace"
+          # Fallback to canonical runner path
+          repo_name="${{ github.repository }}"
+          base_name=$(basename "$GITHUB_WORKSPACE")
+          git config --global --add safe.directory "/home/runner/work/${repo_name}/${base_name}"
+          # Also add current pwd for safety
+          git config --global --add safe.directory "$(pwd)"
+          git config --global --list | sed -n 's/^safe\.directory=\(.*\)$/safe.directory=\1/p'
+          # Sanity check to trigger git access early
+          git status || true
+
+      - name: Neutralize broken submodule config (prevent git 128 in post-job)
+        if: always()
+        continue-on-error: true
+        run: |
+          # If a stale .gitmodules exists without proper URLs, remove and deinit
+          if [ -f .gitmodules ]; then
+            echo "Found .gitmodules; printing contents:"
+            cat .gitmodules || true
+          fi
+          # Deinit any submodules to avoid post-job cleanup errors
+          git submodule deinit -f --all || true
+          # Remove submodule sections from local config if present
+          git config --local --list | sed -n 's/^submodule\..*/&/p' || true
+          # Best-effort remove common stale sections
+          git config --local --remove-section submodule.Lokok2 || true
+          # Remove .gitmodules if it exists and is not needed
+          rm -f .gitmodules || true
+
+      - name: Inject Railway token env for subsequent steps
+        run: |
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "RAILWAY_TOKEN=${{ secrets.RAILWAY_TOKEN }}" >> $GITHUB_ENV
+            echo "Using project token from RAILWAY_TOKEN"
+          elif [ -n "${{ secrets.RAILWAY_API_TOKEN }}" ]; then
+            # Map API token to RAILWAY_TOKEN since CLI primarily reads RAILWAY_TOKEN
+            echo "RAILWAY_TOKEN=${{ secrets.RAILWAY_API_TOKEN }}" >> $GITHUB_ENV
+            echo "RAILWAY_API_TOKEN=${{ secrets.RAILWAY_API_TOKEN }}" >> $GITHUB_ENV
+            echo "Using account/team token mapped to RAILWAY_TOKEN"
+          else
+            echo "No Railway token secrets provided" >&2
+          fi
+
+      - name: Validate Railway token secrets
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] && [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "ERROR: Defina RAILWAY_TOKEN (projeto) ou RAILWAY_API_TOKEN (conta/time) em GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Diagnose Railway CLI context (token, whoami, status)
+        env:
+          RAILWAY_TOKEN: ${{ env.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ env.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          set -e
+          # Fallback: map API token to project token var for CLI compatibility
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
+          railway --version
+          echo "Token present: $([ -n "$RAILWAY_TOKEN" ] && echo yes || echo no)"
+          # Try to link if project id is provided (safe even when project token is used)
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            echo "Attempting link to project $RAILWAY_PROJECT_ID (best-effort)"
+            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID" || true
+          fi
+          railway whoami || true
+          railway status || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,24 +119,37 @@ jobs:
       - name: Install Railway CLI
         run: npm i -g @railway/cli
 
-      - name: Deploy using Railway CLI
+      - name: Link Railway project context (when using API token)
         env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
-          if [ -n "$RAILWAY_TOKEN" ]; then
-            echo "Using project token (RAILWAY_TOKEN)"
-            railway up --detach
-          elif [ -n "$RAILWAY_API_TOKEN" ]; then
-            echo "Using account/team token (RAILWAY_API_TOKEN)"
-            railway up --detach
-          else
-            echo "ERROR: Provide either RAILWAY_TOKEN (project token) or RAILWAY_API_TOKEN (account/team token) as a GitHub secret." >&2
-            exit 1
+          # Fallback: map API token to project token var for CLI compatibility
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
+          railway --version
+          if [ -n "$RAILWAY_API_TOKEN" ] && [ -n "$RAILWAY_PROJECT_ID" ]; then
+            echo "Linking to project $RAILWAY_PROJECT_ID"
+            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+          else
+            echo "WARNING: RAILWAY_API_TOKEN provided without RAILWAY_PROJECT_ID; CLI may fail to resolve project." >&2
+          fi
+          railway status || true
 
-      - name: Set environment variables
+      - name: Install Excel dependency (xlsx)
+        run: npm i xlsx
+
+      - name: Generate empty reset Excel (US and CN)
+        run: |
+          set -e
+          node scripts/create_empty_excel.js
+          ls -lh data || true
+
+      - name: Set environment variables (before deploy)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
@@ -46,41 +158,107 @@ jobs:
           GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
           GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          EXCEL_DOWNLOAD_URL_INPUT: ${{ github.event.inputs.EXCEL_DOWNLOAD_URL }}
+          EXCEL_PATH_INPUT: ${{ github.event.inputs.EXCEL_PATH }}
+          FORCE_LOCAL_EXCEL_INPUT: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
         run: |
           set -e
+          # Fallback: map API token to project token var for CLI compatibility
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
           # Authenticate is implicit via token env var
-          railway variables set NODE_ENV=production
+          railway variables USE_DB=false
+          railway variables NODE_ENV=production
           # Default to local Excel; will switch to Drive if credentials provided
-          railway variables set FORCE_LOCAL_EXCEL=1
-          railway variables set EXCEL_PATH=./data/cached_spreadsheet.xlsx
+          if [ -n "$FORCE_LOCAL_EXCEL_INPUT" ]; then
+            railway variables FORCE_LOCAL_EXCEL="$FORCE_LOCAL_EXCEL_INPUT"
+            echo "FORCE_LOCAL_EXCEL set from workflow input"
+          else
+            echo "FORCE_LOCAL_EXCEL input empty; leaving existing variable unchanged"
+          fi
+          if [ -n "$EXCEL_PATH_INPUT" ]; then
+            railway variables EXCEL_PATH="$EXCEL_PATH_INPUT"
+            echo "Using EXCEL_PATH from workflow input"
+          else
+            echo "EXCEL_PATH input empty; leaving existing variable unchanged"
+          fi
           if [ -n "$SESSION_SECRET" ]; then
-            railway variables set SESSION_SECRET="$SESSION_SECRET"
+            railway variables SESSION_SECRET="$SESSION_SECRET"
           else
             echo "SESSION_SECRET not set; using default in code. Consider adding it as a secret." >&2
           fi
           # Google Drive credentials (optional)
           if [ -n "$GOOGLE_DRIVE_FILE_ID" ]; then
-            railway variables set GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
-            # If a public Drive file ID is present, prefer Drive even without service account
-            railway variables set FORCE_LOCAL_EXCEL=0
-            echo "GOOGLE_DRIVE_FILE_ID detected; using Drive (FORCE_LOCAL_EXCEL=0)"
+            railway variables GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
+            echo "GOOGLE_DRIVE_FILE_ID detected; Drive integration available (optional)"
           else
-            echo "GOOGLE_DRIVE_FILE_ID not set; staying on local Excel unless overridden." >&2
+            railway variables GOOGLE_DRIVE_FILE_ID=
+            echo "GOOGLE_DRIVE_FILE_ID not set; forcing local/public Excel path." >&2
           fi
           if [ -n "$GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
-            railway variables set GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
+            railway variables GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
           fi
           if [ -n "$GOOGLE_PRIVATE_KEY" ]; then
-            railway variables set GOOGLE_PRIVATE_KEY="$GOOGLE_PRIVATE_KEY"
+            railway variables GOOGLE_PRIVATE_KEY="$GOOGLE_PRIVATE_KEY"
           fi
 
           # Service account is optional when file is public; if provided, it enables private files
 
           # Country list (fallback to default if secret missing)
           if [ -n "$DEFAULT_ADMIN_ALLOWED_COUNTRIES" ]; then
-            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
+            railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
           else
-            railway variables set DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
+            railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
+          fi
+
+      - name: Download Excel file for exact local parity (optional)
+        env:
+          EXCEL_PATH_INPUT: ${{ github.event.inputs.EXCEL_PATH }}
+        run: |
+          set -e
+          mkdir -p data
+          if [ -n "$EXCEL_PATH_INPUT" ] && echo "$EXCEL_PATH_INPUT" | grep -qiE '^https?://'; then
+            echo "Downloading Excel from EXCEL_PATH_INPUT to data/cached_spreadsheet.xlsx"
+            curl -L "$EXCEL_PATH_INPUT" -o data/cached_spreadsheet.xlsx
+            ls -lh data || true
+          else
+            echo "No EXCEL_PATH URL provided; skipping optional local parity download"
+          fi
+
+      - name: Deploy using Railway CLI (with variables set)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          set -e
+          # Fallback: map API token to project token var for CLI compatibility
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
+          # Best-effort link when project id is available
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID" || true
+          fi
+          railway whoami || true
+          railway status || true
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            echo "Using project token (RAILWAY_TOKEN)"
+            railway up --detach
+          elif [ -n "$RAILWAY_API_TOKEN" ]; then
+            echo "Using account/team token (RAILWAY_API_TOKEN)"
+            # Ensure project is linked when using account/team token
+            if ! railway status >/dev/null 2>&1; then
+              echo "ERROR: Railway CLI does not have project context. Set secret RAILWAY_PROJECT_ID and ensure link step runs." >&2
+              exit 1
+            fi
+            railway up --detach
+          else
+            echo "ERROR: Provide either RAILWAY_TOKEN (project token) or RAILWAY_API_TOKEN (account/team token) as a GitHub secret." >&2
+            exit 1
           fi
 
       - name: Print healthcheck URL

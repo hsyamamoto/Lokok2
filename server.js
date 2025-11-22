@@ -1660,6 +1660,46 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     res.json({ success: true, message: 'Record updated successfully!' });
 });
 
+// Rota DELETE para remover um registro
+app.delete('/records/:id', requireAuth, async (req, res) => {
+    try {
+        const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
+        const data = await readExcelData(selectedCountry);
+        const recordId = parseInt(req.params.id);
+        const user = req.session.user;
+
+        if (Number.isNaN(recordId) || recordId < 0 || recordId >= data.length) {
+            return res.status(404).json({ success: false, message: 'Record not found' });
+        }
+
+        const record = data[recordId];
+
+        // Permissões: admin pode deletar qualquer registro; gerente só se for responsável
+        if (user.role !== 'admin') {
+            if (user.role !== 'gerente') {
+                return res.status(403).json({ success: false, message: 'Access denied. Only administrators and managers can delete records.' });
+            }
+            const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
+            if (!responsaveis.includes(user.name)) {
+                return res.status(403).json({ success: false, message: 'Access denied. You can only delete distributors you are responsible for.' });
+            }
+        }
+
+        // Remover o registro pelo índice
+        data.splice(recordId, 1);
+
+        const saveSuccess = await writeExcelData(data, selectedCountry);
+        if (!saveSuccess) {
+            return res.status(500).json({ success: false, message: 'Error deleting record. Please try again.' });
+        }
+
+        return res.json({ success: true, message: 'Record deleted successfully.' });
+    } catch (error) {
+        console.error('Error in DELETE /records/:id', error);
+        return res.status(500).json({ success: false, message: 'Unexpected server error while deleting record.' });
+    }
+});
+
 // Rota para download do template Excel
 app.get('/download-template', requireAuth, requireManagerOrAdmin, (req, res) => {
     try {

@@ -315,9 +315,14 @@
                                             </td>
                                             <td class="px-4 py-2 text-sm">
                                                 <% if (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)) { %>
-                                                    <a href="/edit/<%= record._realIndex %>" class="inline-flex items-center px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600">
-                                                        <i class="fas fa-edit mr-1"></i> Edit
-                                                    </a>
+                                                    <div class="flex items-center gap-2">
+                                                        <a href="/edit/<%= record._realIndex %>" class="inline-flex items-center px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600">
+                                                            <i class="fas fa-edit mr-1"></i> Edit
+                                                        </a>
+                                                        <button type="button" data-id="<%= record._realIndex %>" class="btn-delete inline-flex items-center px-2 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600">
+                                                            <i class="fas fa-trash-alt mr-1"></i> Delete
+                                                        </button>
+                                                    </div>
                                                 <% } else { %>
                                                     <span class="text-gray-400">—</span>
                                                 <% } %>
@@ -443,14 +448,19 @@
                                     </div>
                                     <% } %>
                                     
-                                    <!-- Botão de Editar -->
+                                    <!-- Botões de Ação -->
                                     <% if (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)) { %>
-                                    <div class="border-t border-gray-200 pt-3 mt-3">
+                                    <div class="border-t border-gray-200 pt-3 mt-3 flex items-center gap-2">
                                         <a href="/edit/<%= record._realIndex %>" 
                                            class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
                                             <i class="fas fa-edit mr-2"></i>
                                             Edit
                                         </a>
+                                        <button type="button" data-id="<%= record._realIndex %>" 
+                                            class="btn-delete inline-flex items-center px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                                            <i class="fas fa-trash-alt mr-2"></i>
+                                            Delete
+                                        </button>
                                     </div>
                                     <% } %>
                                 </div>
@@ -553,6 +563,41 @@
                     card.style.opacity = '1';
                     card.style.transform = 'translateY(0)';
                 }, index * 100);
+            });
+
+            // Deleção com confirmação
+            const deleteButtons = document.querySelectorAll('.btn-delete');
+            deleteButtons.forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.getAttribute('data-id');
+                    const nameCell = btn.closest('tr')?.querySelector('td:first-child')?.textContent || '';
+                    const confirmMsg = nameCell ? `Tem certeza que deseja deletar o registro "${nameCell}"?` : 'Tem certeza que deseja deletar este registro?';
+                    if (!confirm(confirmMsg)) return;
+
+                    btn.disabled = true;
+                    const originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...';
+                    try {
+                        const response = await fetch(`/records/${id}`, { method: 'DELETE' });
+                        const result = await response.json().catch(() => ({ success: false }));
+                        if (response.ok && result.success) {
+                            const row = btn.closest('tr');
+                            if (row) {
+                                row.remove();
+                            } else {
+                                window.location.reload();
+                            }
+                        } else {
+                            alert(result.message || 'Falha ao deletar o registro.');
+                            btn.disabled = false;
+                            btn.innerHTML = originalHtml;
+                        }
+                    } catch (e) {
+                        alert('Erro ao comunicar com o servidor.');
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                    }
+                });
             });
         });
     </script>

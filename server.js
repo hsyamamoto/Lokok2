@@ -2000,6 +2000,18 @@ async function startServer() {
     }
 }
 
+// Rota de status para verificar versão e ambiente
+app.get('/api/status/source', (req, res) => {
+  const commit = process.env.GITHUB_SHA || process.env.RAILWAY_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || process.env.COMMIT_SHA || null;
+  res.json({
+    ok: true,
+    env: NODE_ENV || process.env.NODE_ENV || 'development',
+    timestamp: new Date().toISOString(),
+    commit,
+    features: { deleteRecords: true }
+  });
+});
+
 // Iniciar servidor
 startServer();
 

@@ -1417,16 +1417,21 @@ app.get('/search', requireAuth, async (req, res) => {
     let resultsAdvanced = data;
     let buyerFilterCount = null;
     if (hasAdvancedFilters) {
-        // buyer/manager alias-aware
+        // buyer/manager alias-aware, with special "__blank__" to find empty fields
         if (typeof req.query.buyer === 'string' && req.query.buyer.trim().length > 0) {
-            const buyerTerm = normalize(req.query.buyer);
-            const buyerAliases = [buyerTerm, ...(buyerTerm === 'nacho' ? ['ignacio'] : [])];
             const before = resultsAdvanced.length;
-            resultsAdvanced = resultsAdvanced.filter(record => {
-                const mgrNorm = normalize(getField(record, ['Responsable','Manager','Buyer']));
-                return !!mgrNorm && buyerAliases.some(a => mgrNorm.includes(a));
-            });
-            console.log('[SEARCH DEBUG] resultsAdvanced buyer alias count:', resultsAdvanced.length, 'buyerTerm:', buyerTerm, 'before:', before);
+            if (req.query.buyer === '__blank__') {
+                resultsAdvanced = resultsAdvanced.filter(record => (((getField(record, ['Responsable','Manager','Buyer']) || '') + '').trim().length === 0));
+                console.log('[SEARCH DEBUG] buyer blank filter applied. before:', before, 'after:', resultsAdvanced.length);
+            } else {
+                const buyerTerm = normalize(req.query.buyer);
+                const buyerAliases = [buyerTerm, ...(buyerTerm === 'nacho' ? ['ignacio'] : [])];
+                resultsAdvanced = resultsAdvanced.filter(record => {
+                    const mgrNorm = normalize(getField(record, ['Responsable','Manager','Buyer']));
+                    return !!mgrNorm && buyerAliases.some(a => mgrNorm.includes(a));
+                });
+                console.log('[SEARCH DEBUG] resultsAdvanced buyer alias count:', resultsAdvanced.length, 'buyerTerm:', buyerTerm, 'before:', before);
+            }
             buyerFilterCount = resultsAdvanced.length;
         }
         if (category && category.trim()) {
@@ -1436,16 +1441,26 @@ app.get('/search', requireAuth, async (req, res) => {
             console.log('[SEARCH DEBUG] category filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
         }
         if (accountStatus && accountStatus.trim()) {
-            const term = normalize(accountStatus);
             const before = resultsAdvanced.length;
-            resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, ['Account Request Status','Account Status'])) === term);
-            console.log('[SEARCH DEBUG] accountStatus filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+            if (accountStatus === '__blank__') {
+                resultsAdvanced = resultsAdvanced.filter(record => (((getField(record, ['Account Request Status','Account Status']) || '') + '').trim().length === 0));
+                console.log('[SEARCH DEBUG] accountStatus blank filter applied. before:', before, 'after:', resultsAdvanced.length);
+            } else {
+                const term = normalize(accountStatus);
+                resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, ['Account Request Status','Account Status'])) === term);
+                console.log('[SEARCH DEBUG] accountStatus filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+            }
         }
         if (status && status.trim()) {
-            const term = normalize(status);
             const before = resultsAdvanced.length;
-            resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, [fieldStatusName])) === term);
-            console.log('[SEARCH DEBUG] status filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+            if (status === '__blank__') {
+                resultsAdvanced = resultsAdvanced.filter(record => (((getField(record, [fieldStatusName]) || '') + '').trim().length === 0));
+                console.log('[SEARCH DEBUG] status blank filter applied. before:', before, 'after:', resultsAdvanced.length);
+            } else {
+                const term = normalize(status);
+                resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, [fieldStatusName])) === term);
+                console.log('[SEARCH DEBUG] status filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+            }
         }
     }
 

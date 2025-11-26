@@ -148,6 +148,7 @@
                         </label>
                         <select id="buyer" name="buyer" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             <option value="">Any</option>
+                            <option value="__blank__" <%= (typeof buyer !== 'undefined' && buyer === '__blank__') ? 'selected' : '' %>>Blank (empty)</option>
                             <% if (Array.isArray(managersList)) { %>
                                 <% managersList.forEach(function(m) { %>
                                     <option value="<%= m %>" <%= (typeof buyer !== 'undefined' && buyer === m) ? 'selected' : '' %>><%= m %></option>
@@ -162,6 +163,7 @@
                         </label>
                         <select id="accountStatus" name="accountStatus" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             <option value="">Any</option>
+                            <option value="__blank__" <%= (typeof accountStatus !== 'undefined' && accountStatus === '__blank__') ? 'selected' : '' %>>Blank (empty)</option>
                             <% if (Array.isArray(accountStatusList)) { %>
                                 <% accountStatusList.forEach(function(s) { %>
                                     <option value="<%= s %>" <%= (typeof accountStatus !== 'undefined' && accountStatus === s) ? 'selected' : '' %>><%= s %></option>
@@ -185,6 +187,7 @@
                         </label>
                         <select id="status" name="status" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                             <option value="" <%= (typeof status === 'undefined' || status === '') ? 'selected' : '' %>>Any</option>
+                            <option value="__blank__" <%= (typeof status !== 'undefined' && status === '__blank__') ? 'selected' : '' %>>Blank (empty)</option>
                             <% if (Array.isArray(statusList)) { %>
                                 <% statusList.forEach(function(s) { %>
                                     <option value="<%= s %>" <%= (typeof status !== 'undefined' && status === s) ? 'selected' : '' %>><%= s %></option>

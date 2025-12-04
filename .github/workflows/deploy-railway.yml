@@ -100,6 +100,14 @@ jobs:
             exit 1
           fi
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
       - name: Ensure explicit project targeting when using API token
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -120,6 +128,11 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           # Fallback: map API token to project token var for CLI compatibility
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
@@ -135,14 +148,6 @@ jobs:
           railway whoami || true
           railway status || true
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install Railway CLI
-        run: npm i -g @railway/cli
-
       - name: Link Railway project context (when using API token)
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -150,6 +155,11 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           # Fallback: map API token to project token var for CLI compatibility
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
@@ -193,6 +203,11 @@ jobs:
           FORCE_LOCAL_EXCEL_INPUT: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           # Fallback: map API token to project token var for CLI compatibility
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
@@ -274,6 +289,11 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           # Fallback: map API token to project token var for CLI compatibility
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
@@ -312,6 +332,11 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           # Fallback: map API token to project token var for CLI compatibility
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"

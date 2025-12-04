@@ -87,7 +87,12 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node.js and Railway CLI
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Railway CLI
         run: |
           npm i -g @railway/cli
           railway --version
@@ -99,6 +104,11 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
@@ -134,6 +144,11 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm i -g @railway/cli
+          fi
           if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"

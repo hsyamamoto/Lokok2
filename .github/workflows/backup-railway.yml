@@ -96,6 +96,11 @@ jobs:
         run: |
           set -e
           set -o pipefail
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            echo "Railway CLI missing; installing..."
+            npm install -g @railway/cli
+          fi
           mkdir -p backup
           echo "== Railway CLI ==" > backup/cli_version.txt
           railway --version >> backup/cli_version.txt || true

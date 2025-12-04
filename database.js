@@ -339,6 +339,21 @@ async function updateJsonSupplier(oldRecord, updatedRecord, countryHint) {
   try {
     const toStr = (v) => (v === undefined || v === null) ? null : String(v).trim();
     const toLower = (v) => (v === undefined || v === null) ? null : String(v).trim().toLowerCase();
+    const normalizeCountryAliases = (raw) => {
+      const s = toLower(raw);
+      if (!s) return [];
+      // Mapear aliases comuns para US/CA/MX
+      if (['us','usa','united states','united states of america'].includes(s)) {
+        return ['us','usa','united states','united states of america'];
+      }
+      if (['ca','canada'].includes(s)) {
+        return ['ca','canada'];
+      }
+      if (['mx','mexico','méxico'].includes(s)) {
+        return ['mx','mexico','méxico'];
+      }
+      return [s];
+    };
     const normalizeWebsiteJs = (v) => {
       if (v === undefined || v === null) return null;
       let s = String(v).trim().toLowerCase();
@@ -374,7 +389,28 @@ async function updateJsonSupplier(oldRecord, updatedRecord, countryHint) {
       }
     }
 
-    // Fallback: Name + Country (+ Website when available)
+    // Fallback 1: Website normalizado (apenas Website)
+    const websiteRaw = (
+      oldRecord?.Website
+      || oldRecord?.['WEBSITE']
+      || oldRecord?.['URL']
+      || oldRecord?.['Site']
+    );
+    const websiteNormOnly = normalizeWebsiteJs(websiteRaw);
+    if (websiteNormOnly) {
+      const resWebsite = await client.query(
+        `UPDATE suppliers_json
+         SET data = $1, updated_at = NOW()
+         WHERE LOWER(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(data->>'Website', data->>'WEBSITE', data->>'URL', data->>'Site'), '^https?://', ''), '^www\.', ''), '/$', '')) = $2
+         RETURNING id`,
+        [updatedRecord, websiteNormOnly]
+      );
+      if (resWebsite.rowCount > 0) {
+        return true;
+      }
+    }
+
+    // Fallback 2: Name + Country (com aliases; Website opcional)
     const name = toLower(
       oldRecord?.Name
       || oldRecord?.['Company Name']
@@ -383,34 +419,18 @@ async function updateJsonSupplier(oldRecord, updatedRecord, countryHint) {
       || oldRecord?.['Distributor']
     );
     const country = toLower(countryHint || oldRecord?.Country || oldRecord?.['COUNTRY']);
-    const websiteRaw = (
-      oldRecord?.Website
-      || oldRecord?.['WEBSITE']
-      || oldRecord?.['URL']
-      || oldRecord?.['Site']
-    );
-    const website = toLower(websiteRaw);
-    const websiteNorm = normalizeWebsiteJs(websiteRaw);
+    const countryAliases = normalizeCountryAliases(country);
 
     if (!name || !country) {
       // Insufficient identity to safely update
       return false;
     }
 
-    const params = [updatedRecord, name, country];
+    const params = [updatedRecord, name, countryAliases];
     let where = `
       LOWER(COALESCE(data->>'Name', data->>'Company Name', data->>'COMPANY', data->>'Empresa', data->>'Distributor')) = $2
-      AND LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) = $3
+      AND LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) = ANY($3)
     `;
-    if (websiteNorm) {
-      params.push(websiteNorm);
-      // Normalizar Website no lado SQL para manter consistência com dedup/upsert
-      where += ` AND regexp_replace(regexp_replace(regexp_replace(LOWER(COALESCE(data->>'Website', data->>'WEBSITE', data->>'URL', data->>'Site')), '^https?://', ''), '^www\\.', ''), '/$', '') = $4`;
-    } else if (website) {
-      // Fallback simples se não houver como normalizar
-      params.push(website);
-      where += ` AND LOWER(COALESCE(data->>'Website', data->>'WEBSITE', data->>'URL', data->>'Site')) = $4`;
-    }
 
     const res = await client.query(
       `UPDATE suppliers_json SET data = $1, updated_at = NOW() WHERE ${where} RETURNING id`,

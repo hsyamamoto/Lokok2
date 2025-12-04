@@ -126,6 +126,18 @@ jobs:
           fi
           railway status || true
 
+      - name: Assert target domain before setting variables
+        run: |
+          set -e
+          if ! command -v railway >/dev/null 2>&1; then
+            npm i -g @railway/cli
+          fi
+          if ! railway domain list 2>/dev/null | grep -qi 'new-lokok-production'; then
+            echo "ERROR: Domínio new-lokok-production não encontrado no projeto corrente (antes de setar variáveis)." >&2
+            echo "Garanta que o projeto esteja corretamente vinculado (RAILWAY_PROJECT_ID / RAILWAY_TOKEN)." >&2
+            exit 1
+          fi
+
       - name: Set Railway variables
         env:
           INPUT_USE_DB: ${{ github.event.inputs.USE_DB }}

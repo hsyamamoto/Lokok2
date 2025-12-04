@@ -179,6 +179,25 @@ jobs:
           fi
           railway status || true
 
+      - name: Assert target project/domain before deploy
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          set -e
+          # Ensure Railway CLI is available
+          if ! command -v railway >/dev/null 2>&1; then
+            npm i -g @railway/cli
+          fi
+          echo "Verifying target domain new-lokok-production..."
+          if ! railway domain list 2>/dev/null | grep -qi 'new-lokok-production'; then
+            echo "ERROR: Domínio new-lokok-production não encontrado no projeto corrente." >&2
+            echo "Dicas:"
+            echo "- Garanta que RAILWAY_PROJECT_ID aponte para o projeto new-lokok-production."
+            echo "- Ou use RAILWAY_TOKEN (token de projeto) do new-lokok-production."
+            echo "- Verifique se o link ao projeto ocorreu sem erros nas etapas anteriores."
+            exit 1
+          fi
+
       - name: Install Excel dependency (xlsx)
         run: npm i xlsx
 

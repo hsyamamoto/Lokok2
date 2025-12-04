@@ -101,12 +101,17 @@ jobs:
           fi
 
       - name: Ensure explicit project targeting when using API token
-        if: ${{ secrets.RAILWAY_API_TOKEN != '' && secrets.RAILWAY_PROJECT_ID == '' && secrets.RAILWAY_TOKEN == '' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          echo "ERROR: RAILWAY_API_TOKEN está definido sem RAILWAY_PROJECT_ID."
-          echo "Adicione o secret RAILWAY_PROJECT_ID (Project ID do Railway) para evitar deploy no projeto errado."
-          echo "Para fixar em new-lokok-production: Settings → Secrets → Actions → New secret → RAILWAY_PROJECT_ID = <ID do projeto>."
-          exit 1
+          if [ -n "$RAILWAY_API_TOKEN" ] && [ -z "$RAILWAY_PROJECT_ID" ] && [ -z "$RAILWAY_TOKEN" ]; then
+            echo "ERROR: RAILWAY_API_TOKEN está definido sem RAILWAY_PROJECT_ID."
+            echo "Adicione o secret RAILWAY_PROJECT_ID (Project ID do Railway) para evitar deploy no projeto errado."
+            echo "Para fixar em new-lokok-production: Settings → Secrets → Actions → New secret → RAILWAY_PROJECT_ID = <ID do projeto>."
+            exit 1
+          fi
 
       - name: Diagnose Railway CLI context (token, whoami, status)
         env:

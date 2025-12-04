@@ -100,6 +100,14 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure explicit project targeting when using API token
+        if: ${{ secrets.RAILWAY_API_TOKEN != '' && secrets.RAILWAY_PROJECT_ID == '' && secrets.RAILWAY_TOKEN == '' }}
+        run: |
+          echo "ERROR: RAILWAY_API_TOKEN está definido sem RAILWAY_PROJECT_ID."
+          echo "Adicione o secret RAILWAY_PROJECT_ID (Project ID do Railway) para evitar deploy no projeto errado."
+          echo "Para fixar em new-lokok-production: Settings → Secrets → Actions → New secret → RAILWAY_PROJECT_ID = <ID do projeto>."
+          exit 1
+
       - name: Diagnose Railway CLI context (token, whoami, status)
         env:
           RAILWAY_TOKEN: ${{ env.RAILWAY_TOKEN }}
@@ -143,11 +151,16 @@ jobs:
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
           railway --version
-          if [ -n "$RAILWAY_API_TOKEN" ] && [ -n "$RAILWAY_PROJECT_ID" ]; then
-            echo "Linking to project $RAILWAY_PROJECT_ID"
-            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+          if [ -n "$RAILWAY_API_TOKEN" ]; then
+            if [ -n "$RAILWAY_PROJECT_ID" ]; then
+              echo "Linking to project $RAILWAY_PROJECT_ID"
+              railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+            else
+              echo "ERROR: RAILWAY_API_TOKEN fornecido sem RAILWAY_PROJECT_ID. Defina RAILWAY_PROJECT_ID para direcionar o deploy ao projeto correto." >&2
+              exit 1
+            fi
           else
-            echo "WARNING: RAILWAY_API_TOKEN provided without RAILWAY_PROJECT_ID; CLI may fail to resolve project." >&2
+            echo "Project token detectado (RAILWAY_TOKEN); skip do link explícito."
           fi
           railway status || true
 
@@ -248,6 +261,29 @@ jobs:
           echo "- USE_DB: auto (true when DATABASE_URL set; false otherwise)"
           echo "- GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID != '' && 'SET' || 'EMPTY' }}"
           echo "- FORCE_LOCAL_EXCEL: ${{ github.event.inputs.FORCE_LOCAL_EXCEL != '' && github.event.inputs.FORCE_LOCAL_EXCEL || 'auto (0 with Drive, 1 without)' }}"
+
+      - name: Target project and domains summary
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          set -e
+          # Fallback: map API token to project token var for CLI compatibility
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
+          echo "==== Railway Target Summary ===="
+          echo "Project ID (secret): ${RAILWAY_PROJECT_ID:-(none)}"
+          echo "Whoami:"
+          railway whoami || true
+          echo "Project info:"
+          railway project || true
+          echo "Domains:"
+          railway domain list || true
+          echo "Check for new-lokok-production domain:"
+          railway domain list 2>/dev/null | grep -i 'new-lokok-production' && echo "Detected new-lokok-production domain" || echo "new-lokok-production domain not detected in current project"
           echo "- EXCEL_PATH input: ${{ github.event.inputs.EXCEL_PATH }}"
 
       - name: Download Excel file for exact local parity (optional)

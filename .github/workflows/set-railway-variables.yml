@@ -74,6 +74,14 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure explicit project targeting when using API token
+        if: ${{ secrets.RAILWAY_API_TOKEN != '' && secrets.RAILWAY_PROJECT_ID == '' && secrets.RAILWAY_TOKEN == '' }}
+        run: |
+          echo "ERROR: RAILWAY_API_TOKEN está definido sem RAILWAY_PROJECT_ID."
+          echo "Adicione o secret RAILWAY_PROJECT_ID (Project ID do Railway) para evitar alterar variáveis no projeto errado."
+          echo "Para fixar em new-lokok-production: Settings → Secrets → Actions → New secret → RAILWAY_PROJECT_ID = <ID do projeto>."
+          exit 1
+
       - name: Setup Node.js and Railway CLI
         run: |
           npm i -g @railway/cli
@@ -90,11 +98,16 @@ jobs:
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
-          if [ -n "$RAILWAY_API_TOKEN" ] && [ -n "$RAILWAY_PROJECT_ID" ]; then
-            echo "Linking to project $RAILWAY_PROJECT_ID"
-            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+          if [ -n "$RAILWAY_API_TOKEN" ]; then
+            if [ -n "$RAILWAY_PROJECT_ID" ]; then
+              echo "Linking to project $RAILWAY_PROJECT_ID"
+              railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+            else
+              echo "ERROR: RAILWAY_API_TOKEN fornecido sem RAILWAY_PROJECT_ID. Defina RAILWAY_PROJECT_ID para direcionar as variáveis ao projeto correto." >&2
+              exit 1
+            fi
           else
-            echo "Project link step skipped (project token provided or missing RAILWAY_PROJECT_ID)."
+            echo "Project token detectado (RAILWAY_TOKEN); skip do link explícito."
           fi
           railway status || true
 

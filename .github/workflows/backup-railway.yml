@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       production_url:
-        description: "Production URL (default: https://lokok2-production.up.railway.app)"
+        description: "Production URL (default: https://new-lokok-production.up.railway.app)"
         required: false
-        default: "https://lokok2-production.up.railway.app"
+        default: "https://new-lokok-production.up.railway.app"
       include_logs:
         description: "Include last 1000 lines of logs (default: false)"
         required: false

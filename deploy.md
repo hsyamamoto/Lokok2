@@ -80,7 +80,7 @@ FORCE_LOCAL_EXCEL=0
 GOOGLE_DRIVE_FILE_ID=1MTS0GlaxQdCPeAZZfwZvtbCjbQ_wFmXl
 
 # Fallback/local
-EXCEL_PATH=./data/cached_spreadsheet.xlsx
+EXCEL_PATH=./data/lokok2-export-US-20251119.xlsx
 ```
 
 Se o arquivo do Drive for privado, adicione também:
@@ -94,6 +94,7 @@ GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...sua-chave...\n-----END PRIVAT
 **Notas**:
 - `DATABASE_URL` será configurada automaticamente pelo Railway se você adicionar PostgreSQL.
 - Com `GOOGLE_DRIVE_FILE_ID` público, não é necessário conta de serviço.
+- Para paridade exata usando Excel local no deploy via GitHub Actions, defina o secret `EXCEL_DOWNLOAD_URL` apontando para um link de download direto da planilha. O workflow fará o download para `./data/lokok2-export-US-20251119.xlsx` antes do deploy.
 
 #### D. Deploy Automático
 - O Railway fará o deploy automaticamente
@@ -209,7 +210,8 @@ Configure as variáveis no Railway ou no arquivo `.env.production`:
 - `GOOGLE_DRIVE_FILE_ID`: ID do arquivo no Google Drive (pode ser público; ativa download/caching do Excel). Se público, não precisa de conta de serviço.
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`: e-mail da service account (necessário para arquivos privados).
 - `GOOGLE_PRIVATE_KEY`: chave privada da service account (use `\n` para quebras de linha, necessário para arquivos privados).
-- `EXCEL_PATH`: caminho do Excel local de fallback (se Google Drive não estiver configurado).
+- `EXCEL_PATH`: caminho do Excel local de fallback (se Google Drive não estiver configurado) — por padrão `./data/lokok2-export-US-20251119.xlsx`.
+- (Actions) `EXCEL_DOWNLOAD_URL`: URL direta da planilha para baixar no runner e incluir no deploy.
 - `DEFAULT_ADMIN_ALLOWED_COUNTRIES`: valores padrão permitidos para admin, ex.: `US,CA,MX`.
 
 Veja exemplos em `.env.production.example`.

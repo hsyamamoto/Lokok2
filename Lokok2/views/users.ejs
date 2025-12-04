@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Users - LOKOK System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-sky-50 to-blue-50 min-h-screen font-sans text-base">
+    <!-- Navigation -->
+    <nav class="bg-gradient-to-r from-sky-300 to-sky-400 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-users text-2xl text-sky-800"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h1 class="text-xl font-bold text-sky-800">LOKOK System</h1>
+                        <p class="text-sm text-sky-700">Manage Users</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/dashboard" class="text-sky-800 hover:text-sky-900 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200">
+                        <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
+                    </a>
+                    <a href="/form" class="text-sky-800 hover:text-sky-900 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200">
+                        <i class="fas fa-plus mr-2"></i>Add
+                    </a>
+                    <a href="/logout" class="text-sky-800 hover:text-sky-900 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="px-4 py-6 sm:px-0">
+            <div class="border-4 border-dashed border-sky-200 rounded-lg p-8">
+                <div class="text-center">
+                    <i class="fas fa-users text-6xl text-sky-400 mb-4"></i>
+                    <h1 class="text-3xl font-bold text-gray-900 mb-2">User Management</h1>
+                    <p class="text-gray-600">Manage users and their permissions in the system</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add User Form -->
+        <div class="mb-8">
+            <div class="bg-white rounded-2xl shadow-xl border-0 overflow-hidden">
+                <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-6 py-4">
+                    <h2 class="text-xl font-semibold text-sky-800 mb-0">
+                        <i class="fas fa-user-plus mr-2"></i>Add New User
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <form id="addUserForm" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="name" class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-user mr-2"></i>Full Name
+                            </label>
+                            <input type="text" id="name" name="name" required
+                                   class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
+                        </div>
+                        <div>
+                            <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-envelope mr-2"></i>Email
+                            </label>
+                            <input type="email" id="email" name="email" required
+                                   class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
+                        </div>
+                        <div>
+                            <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-lock mr-2"></i>Password
+                            </label>
+                            <input type="password" id="password" name="password" required
+                                   class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
+                        </div>
+                        <div>
+                            <label for="role" class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-user-tag mr-2"></i>Role
+                            </label>
+                            <select id="role" name="role" required
+                                    class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
+                                <option value="gerente">Manager</option>
+                                <option value="admin">Administrator</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2">
+<<<<<<< HEAD
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-globe-americas mr-2"></i>Allowed Countries
+                            </label>
+                            <div class="flex items-center space-x-6">
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="US" class="rounded" checked>
+                                    <span>US</span>
+                                </label>
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="CA" class="rounded">
+                                    <span>CA</span>
+                                </label>
+                                <label class="inline-flex items-center space-x-2">
+                                    <input type="checkbox" name="allowedCountries" value="MX" class="rounded">
+                                    <span>MX</span>
+                                </label>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Admins default to all countries; managers can be limited.</p>
+                        </div>
+                        <div class="md:col-span-2">
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+                            <button type="submit" class="w-full bg-sky-300 hover:bg-sky-400 text-sky-800 px-4 py-3 rounded-xl font-medium transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+                                <i class="fas fa-user-plus mr-2"></i>Add User
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users List -->
+        <div class="mb-8">
+            <div class="bg-white rounded-2xl shadow-xl border-0 overflow-hidden">
+                <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-6 py-4">
+                    <h2 class="text-xl font-semibold text-sky-800 mb-0">
+                        <i class="fas fa-list mr-2"></i>System Users
+                        <span class="bg-sky-300/50 text-sky-800 px-3 py-1 rounded-full text-sm ml-2"><%= users.length %> user(s)</span>
+                    </h2>
+                </div>
+                <div class="p-6">
+                    <% if (users.length === 0) { %>
+                        <div class="text-center py-12">
+                            <i class="fas fa-users text-6xl text-gray-300 mb-4"></i>
+                            <p class="text-gray-500 text-lg">No users found</p>
+                        </div>
+                    <% } else { %>
+                        <div class="grid gap-4">
+                            <% users.forEach(function(user) { %>
+                            <div class="bg-white rounded-xl shadow-lg border border-gray-100 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+                                <div class="bg-gradient-to-r from-sky-200 to-blue-200 px-4 py-3 rounded-t-xl flex justify-between items-center">
+                                    <h3 class="text-base font-semibold text-sky-800 truncate" title="<%= user.name %>">
+                                        <i class="fas fa-user mr-2"></i><%= user.name %>
+                                    </h3>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="bg-<%= user.role === 'admin' ? 'emerald' : 'amber' %>-200 text-<%= user.role === 'admin' ? 'emerald' : 'amber' %>-800 px-2 py-1 rounded-full text-xs font-medium">
+                                            <i class="fas fa-<%= user.role === 'admin' ? 'crown' : 'user-tie' %> mr-1"></i>
+                                            <%= user.role === 'admin' ? 'Administrator' : 'Manager' %>
+                                        </span>
+                                        <% if (user.role !== 'admin' || user.id !== currentUser.id) { %>
+<<<<<<< HEAD
+                                        <button onclick='editUser(<%- JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role, allowedCountries: (user.allowedCountries || []) }) %>)' class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors mr-2" title="Edit user">
+=======
+                                        <button onclick="editUser(<%= user.id %>, '<%= user.name %>', '<%= user.email %>', '<%= user.role %>')" class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors mr-2" title="Edit user">
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button onclick="deleteUser(<%= user.id %>, '<%= user.name %>')" class="text-red-500 hover:text-red-700 p-1 rounded transition-colors" title="Delete user">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                        <% } %>
+                                    </div>
+                                </div>
+                                <div class="p-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <div class="text-xs text-gray-500 mb-1"><i class="fas fa-envelope mr-1"></i>Email:</div>
+                                            <div class="text-gray-800 font-medium"><%= user.email %></div>
+                                        </div>
+                                        <div>
+                                            <div class="text-xs text-gray-500 mb-1"><i class="fas fa-calendar mr-1"></i>Created on:</div>
+                                            <div class="text-gray-800"><%= new Date(user.createdAt).toLocaleDateString('en-US') %></div>
+                                        </div>
+<<<<<<< HEAD
+                                        <div class="md:col-span-2">
+                                            <div class="text-xs text-gray-500 mb-1"><i class="fas fa-flag mr-1"></i>Allowed Countries:</div>
+                                            <div class="text-gray-800"><%= (user.allowedCountries || ['US']).join(', ') %></div>
+                                        </div>
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+                                    </div>
+                                </div>
+                            </div>
+                            <% }); %>
+                        </div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-medium text-gray-900">Edit User</h3>
+                    <button onclick="closeEditModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="editUserForm">
+                    <input type="hidden" id="editUserId" name="userId">
+                    <div class="mb-4">
+                        <label for="editName" class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                        <input type="text" id="editName" name="name" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    </div>
+                    <div class="mb-4">
+                        <label for="editEmail" class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                        <input type="email" id="editEmail" name="email" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    </div>
+                    <div class="mb-4">
+                        <label for="editPassword" class="block text-sm font-medium text-gray-700 mb-2">New Password (optional)</label>
+                        <input type="password" id="editPassword" name="password" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500">
+                    </div>
+                    <div class="mb-6">
+                        <label for="editRole" class="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                        <select id="editRole" name="role" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-sky-500">
+                            <option value="gerente">Manager</option>
+                            <option value="operador">Operator</option>
+                            <option value="admin">Administrator</option>
+                        </select>
+                    </div>
+<<<<<<< HEAD
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Allowed Countries</label>
+                        <div class="flex items-center space-x-6">
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryUS" name="allowedCountries" value="US" class="rounded">
+                                <span>US</span>
+                            </label>
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryCA" name="allowedCountries" value="CA" class="rounded">
+                                <span>CA</span>
+                            </label>
+                            <label class="inline-flex items-center space-x-2">
+                                <input type="checkbox" id="editCountryMX" name="allowedCountries" value="MX" class="rounded">
+                                <span>MX</span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Check which countries this user can access.</p>
+                    </div>
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 transition-colors">
+                            Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <div class="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+                    <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 text-center mb-2">Confirm Deletion</h3>
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-yellow-700">
+                                <strong>WARNING:</strong> This action is irreversible!
+                            </p>
+                            <p class="text-sm text-yellow-700 mt-1">
+                                By deleting this user, <strong>all data and history</strong> associated with them will be permanently lost, including:
+                            </p>
+                            <ul class="text-sm text-yellow-700 mt-2 list-disc list-inside">
+                                <li>Suppliers registered by the user</li>
+                                <li>Activity history</li>
+                                <li>Audit data</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 text-center mb-6">
+                    Are you sure you want to delete the user <strong id="deleteUserName"></strong>?
+                </p>
+                <div class="flex justify-center space-x-3">
+                    <button type="button" onclick="closeDeleteModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="confirmDelete()" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
+                        <i class="fas fa-trash mr-2"></i>Delete Permanently
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success/Error Messages -->
+    <div id="message" class="fixed top-4 right-4 p-4 rounded-lg shadow-lg hidden z-50">
+        <div id="messageContent" class="flex items-center">
+            <i id="messageIcon" class="mr-2"></i>
+            <span id="messageText"></span>
+        </div>
+    </div>
+
+    <script>
+        // Add User Form Handler
+        document.getElementById('addUserForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const userData = {
+                name: formData.get('name'),
+                email: formData.get('email'),
+                password: formData.get('password'),
+                role: formData.get('role')
+            };
+<<<<<<< HEAD
+            // Collect allowed countries from checked boxes
+            const allowed = Array.from(this.querySelectorAll('input[name="allowedCountries"]:checked')).map(i => i.value.toUpperCase());
+            if (allowed.length > 0) {
+                userData.allowedCountries = allowed;
+            }
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+            
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('User created successfully!', 'success');
+                    this.reset();
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(result.message || 'Error creating user', 'error');
+                }
+            } catch (error) {
+                showMessage('Error creating user', 'error');
+            }
+        });
+        
+        // Edit User Functions
+<<<<<<< HEAD
+        function editUser(user) {
+            const userId = user && user.id;
+            const name = user && user.name;
+            const email = user && user.email;
+            const role = user && user.role;
+            const allowedCountries = Array.isArray(user && user.allowedCountries) ? user.allowedCountries : [];
+
+=======
+        function editUser(userId, name, email, role) {
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+            document.getElementById('editUserId').value = userId;
+            document.getElementById('editName').value = name;
+            document.getElementById('editEmail').value = email;
+            document.getElementById('editRole').value = role;
+            document.getElementById('editPassword').value = '';
+<<<<<<< HEAD
+            const countries = allowedCountries.map(c => String(c).toUpperCase());
+            const us = document.getElementById('editCountryUS');
+            const ca = document.getElementById('editCountryCA');
+            const mx = document.getElementById('editCountryMX');
+            if (us && ca && mx) {
+                us.checked = countries.includes('US');
+                ca.checked = countries.includes('CA');
+                mx.checked = countries.includes('MX');
+            }
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+        
+        function closeEditModal() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+        
+        // Edit User Form Handler
+        document.getElementById('editUserForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const userData = {
+                name: formData.get('name'),
+                email: formData.get('email'),
+                role: formData.get('role')
+            };
+            
+            // Only include password if it's provided
+            const password = formData.get('password');
+            if (password && password.trim() !== '') {
+                userData.password = password;
+            }
+<<<<<<< HEAD
+            // Collect allowed countries from checked boxes
+            const allowedEdit = Array.from(this.querySelectorAll('input[name="allowedCountries"]:checked')).map(i => i.value.toUpperCase());
+            if (allowedEdit.length > 0) {
+                userData.allowedCountries = allowedEdit;
+            }
+=======
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+            
+            const userId = formData.get('userId');
+            
+            try {
+                const response = await fetch(`/api/users/${userId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(userData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('User updated successfully!', 'success');
+                    closeEditModal();
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(result.message || 'Error updating user', 'error');
+                }
+            } catch (error) {
+                showMessage('Error updating user', 'error');
+            }
+        });
+        
+        // Delete User Functions
+        let userToDelete = null;
+        
+        function deleteUser(userId, userName) {
+            userToDelete = userId;
+            document.getElementById('deleteUserName').textContent = userName;
+            document.getElementById('deleteModal').classList.remove('hidden');
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.add('hidden');
+            userToDelete = null;
+        }
+        
+        async function confirmDelete() {
+            if (!userToDelete) return;
+            
+            try {
+                const response = await fetch(`/api/users/${userToDelete}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('User deleted successfully!', 'success');
+                    closeDeleteModal();
+                    setTimeout(() => location.reload(), 1500);
+                } else {
+                    showMessage(result.message || 'Error deleting user', 'error');
+                }
+            } catch (error) {
+<<<<<<< HEAD
+                showMessage('Error deleting user', 'error');
+=======
+                showMessage('Error deleting user', 'error');}]}}}
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+            }
+        }
+        
+        // Show Message Function
+        function showMessage(text, type) {
+            const message = document.getElementById('message');
+            const messageText = document.getElementById('messageText');
+            const messageIcon = document.getElementById('messageIcon');
+            const messageContent = document.getElementById('messageContent');
+            
+            messageText.textContent = text;
+            
+            if (type === 'success') {
+                message.className = 'fixed top-4 right-4 p-4 rounded-lg shadow-lg bg-green-100 border border-green-200 z-50';
+                messageContent.className = 'flex items-center text-green-800';
+                messageIcon.className = 'fas fa-check-circle mr-2';
+            } else {
+                message.className = 'fixed top-4 right-4 p-4 rounded-lg shadow-lg bg-red-100 border border-red-200 z-50';
+                messageContent.className = 'flex items-center text-red-800';
+                messageIcon.className = 'fas fa-exclamation-circle mr-2';
+            }
+            
+            message.classList.remove('hidden');
+            
+            setTimeout(() => {
+                message.classList.add('hidden');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

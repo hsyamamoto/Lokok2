@@ -8,7 +8,12 @@
       "name": "Admin",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:55.921Z",
-      "isActive": true
+      "isActive": true,
+      "allowedCountries": [
+        "US",
+        "CA",
+        "MX"
+      ]
     },
     {
       "id": 2,
@@ -18,7 +23,10 @@
       "name": "Operador",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:55.998Z",
-      "isActive": true
+      "isActive": true,
+      "allowedCountries": [
+        "US"
+      ]
     },
     {
       "id": 3,
@@ -28,17 +36,23 @@
       "name": "Yeseika Beitia",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:56.073Z",
-      "isActive": true
+      "isActive": true,
+      "allowedCountries": [
+        "US"
+      ]
     },
     {
       "id": 4,
       "email": "ignaciocortez@mylokok.com",
-      "password": "$2b$10$sCvKFdDXt1fuCc4fXd.1ceE68tsYP.RhDE.auhTsUIajN1oMpdn6u",
+      "password": "$2b$10$e2F9CmOaKzvCto0nXO7V5Oo.oFxvjvOc.pLeTYxFE3AlJSomgSsu2",
       "role": "gerente",
       "name": "Nacho",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:56.146Z",
-      "isActive": true
+      "isActive": true,
+      "allowedCountries": [
+        "US"
+      ]
     },
     {
       "id": 5,
@@ -48,8 +62,39 @@
       "name": "Hubert",
       "createdBy": null,
       "createdAt": "2025-10-07T04:16:56.219Z",
-      "isActive": true
+      "isActive": true,
+      "allowedCountries": [
+        "US",
+        "CA",
+        "MX"
+      ]
+    },
+    {
+      "id": 7,
+      "email": "marcelogalvis@mylokok.com",
+      "password": "$2b$10$0k7/TqhSCDtJgqCg67TWmulnVpEbLYSHiv0gSqBpHlal.f.4IrCzO",
+      "role": "gerente",
+      "name": "Marcelo",
+      "createdBy": null,
+      "createdAt": "2025-12-02T15:55:37.621Z",
+      "isActive": true,
+      "allowedCountries": [
+        "US"
+      ]
+    },
+    {
+      "id": 8,
+      "email": "jeisonanteliz@mylokok.com",
+      "password": "$2b$10$vEdQE9sRi9.jQFxuMsWIT.tP1P3NEmZHzL9A7VfxTO8i0ncsQuNAK",
+      "role": "gerente",
+      "name": "Jeison",
+      "createdBy": null,
+      "createdAt": "2025-12-02T15:55:37.737Z",
+      "isActive": true,
+      "allowedCountries": [
+        "US"
+      ]
     }
   ],
-  "nextId": 7
+  "nextId": 9
 }

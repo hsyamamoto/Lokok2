@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - LOKOK System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'sans': ['Geist', 'system-ui', 'sans-serif'],
+                        'mono': ['Geist Mono', 'monospace']
+                    },
+                    fontSize: {
+                        'base': '16px'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 font-sans text-base">
+    
+    <!-- Navigation -->
+    <nav class="bg-gradient-to-r from-sky-200 to-blue-200 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold text-blue-800">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        Suppliers System
+                    </h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-blue-700">
+                        Welcome, <span class="font-medium">Admin</span>
+                    </span>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                        admin
+                    </span>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs text-blue-700">Country:</span>
+                        <select class="text-sm px-2 py-1 rounded border border-blue-200 bg-white text-blue-800"
+                                onchange="window.location.href='/switch-country?country=' + this.value">
+                            
+                                <option value="US" selected>US</option>
+                            
+                                <option value="CA" >CA</option>
+                            
+                                <option value="MX" >MX</option>
+                            
+                        </select>
+                    </div>
+                    
+                    <a href="/users" class="text-sm text-blue-700 hover:text-blue-900 transition-colors duration-200">
+                        <i class="fas fa-users mr-1"></i>
+                        Users
+                    </a>
+                    
+                    <a href="/logout" class="text-sm text-blue-700 hover:text-blue-900 transition-colors duration-200">
+                        <i class="fas fa-sign-out-alt mr-1"></i>
+                        Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Header -->
+        <div class="mb-8">
+            <h2 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h2>
+            <p class="text-base text-gray-600">Overview of suppliers and system statistics</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-gradient-to-br from-sky-200 to-sky-300 rounded-xl p-6 text-sky-800 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-sky-700 mb-1">Total Suppliers</p>
+                        <p class="text-3xl font-bold">2988</p>
+                    </div>
+                    <div class="bg-sky-100 bg-opacity-70 rounded-lg p-3">
+                        <i class="fas fa-building text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gradient-to-br from-emerald-200 to-emerald-300 rounded-xl p-6 text-emerald-800 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-emerald-700 mb-1">Active Categories</p>
+                        <p class="text-3xl font-bold">351</p>
+                    </div>
+                    <div class="bg-emerald-100 bg-opacity-70 rounded-lg p-3">
+                        <i class="fas fa-tags text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gradient-to-br from-violet-200 to-violet-300 rounded-xl p-6 text-violet-800 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-violet-700 mb-1">Active Managers</p>
+                        <p class="text-3xl font-bold">5</p>
+                    </div>
+                    <div class="bg-violet-100 bg-opacity-70 rounded-lg p-3">
+                        <i class="fas fa-users text-xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gradient-to-br from-amber-200 to-amber-300 rounded-xl p-6 text-amber-800 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium text-amber-700 mb-1">Months with Records</p>
+                        <p class="text-3xl font-bold">30</p>
+                    </div>
+                    <div class="bg-amber-100 bg-opacity-70 rounded-lg p-3">
+                        <i class="fas fa-calendar text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-tools mr-2 text-sky-500"></i>
+                Available Actions
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                
+                <a href="/form" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-sky-300 to-sky-400 text-sky-800 text-sm font-medium rounded-lg hover:from-sky-400 hover:to-sky-500 transition-all duration-200 shadow-md hover:shadow-lg">
+                    <i class="fas fa-plus mr-2"></i>
+                    Add Supplier
+                </a>
+                
+                
+                <a href="/bulk-upload" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-purple-300 to-purple-400 text-purple-800 text-sm font-medium rounded-lg hover:from-purple-400 hover:to-purple-500 transition-all duration-200 shadow-md hover:shadow-lg">
+                    <i class="fas fa-file-excel mr-2"></i>
+                    Bulk Upload
+                </a>
+                
+                <a href="/search" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-emerald-300 to-emerald-400 text-emerald-800 text-sm font-medium rounded-lg hover:from-emerald-400 hover:to-emerald-500 transition-all duration-200 shadow-md hover:shadow-lg">
+                    <i class="fas fa-search mr-2"></i>
+                    Search Suppliers
+                </a>
+                
+                <a href="/logs" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-red-300 to-red-400 text-red-800 text-sm font-medium rounded-lg hover:from-red-400 hover:to-red-500 transition-all duration-200 shadow-md hover:shadow-lg">
+                    <i class="fas fa-clipboard-list mr-2"></i>
+                    System Logs
+                </a>
+                
+                <button onclick="location.reload()" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-slate-300 to-slate-400 text-slate-800 text-sm font-medium rounded-lg hover:from-slate-400 hover:to-slate-500 transition-all duration-200 shadow-md hover:shadow-lg">
+                    <i class="fas fa-sync-alt mr-2"></i>
+                    Refresh Data
+                </button>
+            </div>
+        </div>
+
+        <!-- Statistics Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <!-- Categories Stats -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-chart-pie mr-2 text-sky-500"></i>
+                    Distribution by Category
+                </h3>
+                <div class="flex justify-center">
+                    <canvas id="categoriesChart" width="350" height="350" class="max-w-md"></canvas>
+                </div>
+            </div>
+
+            <!-- Responsible Stats -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-user-tie mr-2 text-emerald-500"></i>
+                    Suppliers by Manager
+                </h3>
+                <div class="space-y-3">
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                            Nacho
+                        </span>
+                        <div class="flex items-center space-x-3 flex-1 ml-4">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 100.0%"></div>
+                            </div>
+                            <span class="text-sm font-medium text-gray-600 min-w-0">1234</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                            Hubert
+                        </span>
+                        <div class="flex items-center space-x-3 flex-1 ml-4">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 74.4%"></div>
+                            </div>
+                            <span class="text-sm font-medium text-gray-600 min-w-0">918</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                            Gabriel
+                        </span>
+                        <div class="flex items-center space-x-3 flex-1 ml-4">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 61.3%"></div>
+                            </div>
+                            <span class="text-sm font-medium text-gray-600 min-w-0">757</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                            Marcelo
+                        </span>
+                        <div class="flex items-center space-x-3 flex-1 ml-4">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 5.0%"></div>
+                            </div>
+                            <span class="text-sm font-medium text-gray-600 min-w-0">62</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-700">
+                            Jeison
+                        </span>
+                        <div class="flex items-center space-x-3 flex-1 ml-4">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 1.4%"></div>
+                            </div>
+                            <span class="text-sm font-medium text-gray-600 min-w-0">17</span>
+                        </div>
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+
+        
+        <!-- Pending Approvals (Admin) -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-hourglass-half mr-2 text-amber-500"></i>
+                Pending Approvals
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">0</span>
+            </h3>
+            
+                <p class="text-sm text-gray-600">No pending approvals.</p>
+            
+        </div>
+
+        <!-- Operator Tasks (Admin) -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-phone mr-2 text-sky-500"></i>
+                Operator Tasks
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700">4</span>
+            </h3>
+            
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Manager</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        
+                        <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/operator-task/1761332418883'">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:text-blue-800">
+                                <a href="/operator-task/1761332418883" class="hover:underline">
+                                    teste2
+                                </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">teste</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">Yeseika Beitia</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                N/A
+                                <div class="mt-1">
+                                    <a href="/operator-task/1761332418883" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200">
+                                        <i class="fas fa-phone mr-1"></i>
+                                        Contact
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/operator-task/1761334484057'">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:text-blue-800">
+                                <a href="/operator-task/1761334484057" class="hover:underline">
+                                    teste3
+                                </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">teste</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">Nacho</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                N/A
+                                <div class="mt-1">
+                                    <a href="/operator-task/1761334484057" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200">
+                                        <i class="fas fa-phone mr-1"></i>
+                                        Contact
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/operator-task/1761335325075'">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:text-blue-800">
+                                <a href="/operator-task/1761335325075" class="hover:underline">
+                                    teste4q
+                                </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">teste</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">Nacho</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                N/A
+                                <div class="mt-1">
+                                    <a href="/operator-task/1761335325075" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200">
+                                        <i class="fas fa-phone mr-1"></i>
+                                        Contact
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location.href='/operator-task/1761667914154'">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 hover:text-blue-800">
+                                <a href="/operator-task/1761667914154" class="hover:underline">
+                                    teste
+                                </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">teste</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">Nacho</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                N/A
+                                <div class="mt-1">
+                                    <a href="/operator-task/1761667914154" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200">
+                                        <i class="fas fa-phone mr-1"></i>
+                                        Contact
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+            
+        </div>
+        
+
+        
+
+        <!-- Monthly Stats -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-calendar-alt mr-2 text-violet-500"></i>
+                Records by Month
+            </h3>
+            <!-- Filtros de período e ordenação -->
+            <form method="GET" action="/dashboard" class="mb-4">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Sort by</label>
+                        <select name="monthlySort" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg">
+                            <option value="period_asc" >Period (Ascending)</option>
+                            <option value="period_desc" selected>Period (Descending)</option>
+                            <option value="count_asc" >Records (Ascending)</option>
+                            <option value="count_desc" >Records (Descending)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Start month (YYYY-MM)</label>
+                        <input type="month" name="monthlyStart" value="" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">End month (YYYY-MM)</label>
+                        <input type="month" name="monthlyEnd" value="" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg" />
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full bg-violet-300 hover:bg-violet-400 text-violet-800 px-4 py-2 rounded-lg font-medium transition-all">Apply</button>
+                    </div>
+                </div>
+            </form>
+            <div class="space-y-3">
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-06
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 100.0%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">543 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-05
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 94.5%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">513 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-03
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 73.8%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">401 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-09
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 37.0%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">201 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-11
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 30.6%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">166 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-08
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 26.9%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">146 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2023-11
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 25.6%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">139 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-02
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 24.7%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">134 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-04
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 22.5%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">122 records</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+                        2025-07
+                    </span>
+                    <div class="flex items-center space-x-3 flex-1 ml-4">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-violet-300 to-violet-400 h-2 rounded-full transition-all duration-300" style="width: 18.8%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-600 min-w-0">102 records</span>
+                    </div>
+                </div>
+                
+                
+                <p class="text-sm text-gray-500 mt-3">Showing 10 months based on filters...</p>
+                
+            </div>
+        </div>
+
+        <!-- Recent Records (preview dos últimos 5) -->
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">
+                <i class="fas fa-table mr-2 text-sky-500"></i>
+                Recent Records (preview)
+            </h3>
+            <div class="space-y-3">
+                
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">Cottonelle</span>
+                        <span class="text-xs text-gray-600">• Health &amp; Household</span>
+                        <span class="text-xs text-gray-600">• Jeison</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        
+                        <a href="https://www.cottonelle.com/en-us/" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-xs">Website</a>
+                        
+                        <span class="text-xs text-gray-600 font-mono">
+                            
+                                2025-11-14
+                            
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">NOW foods</span>
+                        <span class="text-xs text-gray-600">• Health &amp; Household</span>
+                        <span class="text-xs text-gray-600">• Jeison</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        
+                        <a href="https://www.nowfoods.com/" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-xs">Website</a>
+                        
+                        <span class="text-xs text-gray-600 font-mono">
+                            
+                                2025-11-14
+                            
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">Nature Made</span>
+                        <span class="text-xs text-gray-600">• Health &amp; Household</span>
+                        <span class="text-xs text-gray-600">• Jeison</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        
+                        <a href="https://www.naturemade.com/?gclsrc=aw.ds&amp;gad_source=1&amp;gad_campaignid=22174571019&amp;gbraid=0AAAAAD1usNSK-EzeKP0qZ8kstSNPC9i6M&amp;gclid=CjwKCAiAw9vIBhBBEiwAraSATi39qQ97jut7H3PJmnNksRH65Y4hw1NcOuFl9gTMtqgZl_MzhMmbtRoCMM0QAvD_BwE" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-xs">Website</a>
+                        
+                        <span class="text-xs text-gray-600 font-mono">
+                            
+                                2025-11-14
+                            
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">Cottonelle</span>
+                        <span class="text-xs text-gray-600">• Health &amp; Household</span>
+                        <span class="text-xs text-gray-600">• Jeison</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        
+                        <a href="https://www.cottonelle.com/en-us/" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-xs">Website</a>
+                        
+                        <span class="text-xs text-gray-600 font-mono">
+                            
+                                2025-11-14
+                            
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-sm font-medium text-gray-900">NOW foods</span>
+                        <span class="text-xs text-gray-600">• Health &amp; Household</span>
+                        <span class="text-xs text-gray-600">• Jeison</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        
+                        <a href="https://www.nowfoods.com/" target="_blank" class="text-indigo-600 hover:text-indigo-800 text-xs">Website</a>
+                        
+                        <span class="text-xs text-gray-600 font-mono">
+                            
+                                2025-11-14
+                            
+                        </span>
+                    </div>
+                </div>
+                
+                
+            </div>
+            <!-- Top 5 Seller do mês -->
+            <div class="mt-6 bg-white shadow rounded-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800">TOP 5 Seller do mês</h2>
+                    <form id="topMonthForm" method="get" action="/dashboard" class="flex items-center gap-3">
+                        <label for="topMonth" class="text-sm text-gray-600">Mês:</label>
+                        <select id="topMonth" name="topMonth" class="border border-gray-300 rounded-md px-2 py-1 text-sm">
+                            
+                                <option value="2025-11" selected>2025-11</option>
+                            
+                                <option value="2025-10" >2025-10</option>
+                            
+                                <option value="2025-09" >2025-09</option>
+                            
+                                <option value="2025-08" >2025-08</option>
+                            
+                                <option value="2025-07" >2025-07</option>
+                            
+                                <option value="2025-06" >2025-06</option>
+                            
+                                <option value="2025-05" >2025-05</option>
+                            
+                                <option value="2025-04" >2025-04</option>
+                            
+                                <option value="2025-03" >2025-03</option>
+                            
+                                <option value="2025-02" >2025-02</option>
+                            
+                                <option value="2025-01" >2025-01</option>
+                            
+                                <option value="2024-12" >2024-12</option>
+                            
+                                <option value="2024-11" >2024-11</option>
+                            
+                                <option value="2024-09" >2024-09</option>
+                            
+                                <option value="2024-08" >2024-08</option>
+                            
+                                <option value="2024-07" >2024-07</option>
+                            
+                                <option value="2024-06" >2024-06</option>
+                            
+                                <option value="2024-05" >2024-05</option>
+                            
+                                <option value="2024-04" >2024-04</option>
+                            
+                                <option value="2024-03" >2024-03</option>
+                            
+                                <option value="2024-02" >2024-02</option>
+                            
+                                <option value="2023-12" >2023-12</option>
+                            
+                                <option value="2023-11" >2023-11</option>
+                            
+                                <option value="2023-10" >2023-10</option>
+                            
+                                <option value="2023-09" >2023-09</option>
+                            
+                                <option value="2023-08" >2023-08</option>
+                            
+                                <option value="2023-07" >2023-07</option>
+                            
+                                <option value="2023-03" >2023-03</option>
+                            
+                                <option value="2022-10" >2022-10</option>
+                            
+                                <option value="2022-05" >2022-05</option>
+                            
+                        </select>
+                        <button type="submit" class="inline-flex items-center px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 transition-colors duration-200">
+                            Atualizar
+                        </button>
+                    </form>
+                </div>
+                <!-- Lista simples do Top 5 por mês (sem gráfico) -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responsable</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            
+                                
+                                    <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Nacho</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">90</td>
+                                    </tr>
+                                
+                                    <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Hubert</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">58</td>
+                                    </tr>
+                                
+                                    <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Jeison</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">10</td>
+                                    </tr>
+                                
+                                    <tr class="hover:bg-gray-50 transition-colors duration-200">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Marcelo</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">8</td>
+                                    </tr>
+                                
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="mt-4 text-center">
+                <a href="/search" class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-sky-300 to-sky-400 text-sky-800 text-sm font-medium rounded-lg hover:from-sky-400 hover:to-sky-500 transition-all duration-200">
+                    <i class="fas fa-eye mr-2"></i>
+                    View All Records
+                </a>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Gráfico de Pizza para Categorias
+        const categoriesData = {
+            labels: ['General Merchandise','Arts, Crafts &amp; Sewing','Não especificado','Toys &amp; Games','Cosmetics','Toys','Grocery','Party Supply'],
+            datasets: [{
+                data: [396,235,117,93,87,86,72,54],
+                backgroundColor: [
+                     '#E53E3E', '#38A169', '#3182CE', '#D69E2E', 
+                     '#9F7AEA', '#00B5D8', '#DD6B20', '#319795'
+                 ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        };
+
+        const categoriesConfig = {
+            type: 'doughnut',
+            data: categoriesData,
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            },
+        };
+
+        try {
+            const categoriesChart = new Chart(
+                document.getElementById('categoriesChart'),
+                categoriesConfig
+            );
+        } catch (e) {}
+
+        // Removido gráfico de Top 5 (lista simples no HTML)
+
+        // Approval actions
+        async function approveItemWithDetails(id) {
+            const whoWillCall = document.getElementById('whoWillCall-' + id).value;
+            const callDate = document.getElementById('callDate-' + id).value;
+            
+            if (!whoWillCall) {
+                alert('Please select who will call before approving.');
+                return;
+            }
+            if (!callDate) {
+                alert('Please select a call date before approving.');
+                return;
+            }
+            
+            try {
+                const resp = await fetch('/approve/' + encodeURIComponent(id), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        whoWillCall: whoWillCall,
+                        callDate: callDate
+                    })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    alert('Item approved successfully and assigned to ' + whoWillCall + ' for ' + callDate);
+                    location.reload();
+                } else {
+                    alert('Failed to approve: ' + (result.message || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Connection error while approving.');
+            }
+        }
+
+        async function approveItem(id) {
+            try {
+                const resp = await fetch('/approve/' + encodeURIComponent(id), { method: 'POST' });
+                const result = await resp.json();
+                if (result.success) {
+                    alert('Item approved successfully.');
+                    location.reload();
+                } else {
+                    alert('Failed to approve: ' + (result.message || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Connection error while approving.');
+            }
+        }
+        async function rejectItem(id) {
+            const reason = prompt('Enter rejection reason (optional):');
+            try {
+                const resp = await fetch('/reject/' + encodeURIComponent(id), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: reason || '' })
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    alert('Item rejected.');
+                    location.reload();
+                } else {
+                    alert('Failed to reject: ' + (result.message || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Connection error while rejecting.');
+            }
+        }
+    </script>
+</body>
+</html>

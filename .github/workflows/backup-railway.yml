@@ -10,7 +10,7 @@ on:
       include_logs:
         description: "Include last 1000 lines of logs (default: false)"
         required: false
-        default: "false"
+        default: "true"
 
 jobs:
   backup:
@@ -18,6 +18,66 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+          lfs: true
+          submodules: false
+
+      - name: Mark workspace as safe directory (fix git 128)
+        if: always()
+        continue-on-error: true
+        run: |
+          git --version
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "/github/workspace"
+          repo_name="${{ github.repository }}"
+          base_name=$(basename "$GITHUB_WORKSPACE")
+          git config --global --add safe.directory "/home/runner/work/${repo_name}/${base_name}"
+          git config --global --add safe.directory "$(pwd)"
+          git config --global --list | sed -n 's/^safe\.directory=\(.*\)$/safe.directory=\1/p'
+          git status || true
+
+      - name: Neutralize broken submodule config (prevent git 128 in post-job)
+        if: always()
+        continue-on-error: true
+        run: |
+          if [ -f .gitmodules ]; then
+            echo "Found .gitmodules; printing contents:"
+            cat .gitmodules || true
+          fi
+          # Remove tracked .gitmodules if present
+          if git ls-files --error-unmatch .gitmodules >/dev/null 2>&1; then
+            git rm -f --cached .gitmodules || true
+          fi
+          # Remove any .gitmodules files and purge ALL local submodule config
+          find . -name .gitmodules -type f -print -exec rm -f {} \; || true
+          sections=$(git config --local --name-only --get-regexp '^submodule\.' | sed -E 's/^(submodule\.[^\.]+).*$/\1/' | sort -u || true)
+          for s in $sections; do
+            git config --local --remove-section "$s" || true
+          done
+          # Best-effort deinit
+          git submodule deinit -f --all || true
+          git config --local --list | sed -n 's/^submodule\..*/&/p' || true
+          git status || true
+
+      - name: Inject Railway token env for subsequent steps
+        run: |
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "RAILWAY_TOKEN=${{ secrets.RAILWAY_TOKEN }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ secrets.RAILWAY_API_TOKEN }}" ]; then
+            echo "RAILWAY_API_TOKEN=${{ secrets.RAILWAY_API_TOKEN }}" >> $GITHUB_ENV
+          fi
+
+      - name: Validate Railway token secrets
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] && [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "ERROR: Defina RAILWAY_TOKEN (projeto) ou RAILWAY_API_TOKEN (conta/time) em GitHub Secrets."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -70,6 +130,21 @@ jobs:
           if [ "$INCLUDE_LOGS" = "true" ]; then
             echo "Collecting last 1000 lines of logs..."
             railway logs --lines 1000 > backup/logs.txt 2>/dev/null || true
+          fi
+
+      - name: Dump PostgreSQL database (if DATABASE_URL is set)
+        run: |
+          set -e
+          set -o pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client jq
+          DB_URL=$(jq -r '."DATABASE_URL" // empty' backup/env.json || echo "")
+          if [ -n "$DB_URL" ]; then
+            echo "Dumping PostgreSQL database..."
+            pg_dump "$DB_URL" -f backup/db.sql || echo "Plain SQL dump failed"
+            pg_dump "$DB_URL" -Fc -f backup/db.dump || echo "Custom dump failed"
+          else
+            echo "DATABASE_URL not found in backup/env.json; skipping DB dump."
           fi
 
       - name: Upload backup artifact

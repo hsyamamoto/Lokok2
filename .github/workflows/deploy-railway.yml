@@ -59,14 +59,25 @@ jobs:
             echo "Found .gitmodules; printing contents:"
             cat .gitmodules || true
           fi
-          # Deinit any submodules to avoid post-job cleanup errors
+          # Avoid calling git submodule deinit which can error when URLs are missing.
+          # Instead, remove any .gitmodules files and purge ALL local submodule config.
+          # Remove tracked .gitmodules if present (avoid post-job deinit error)
+          if git ls-files --error-unmatch .gitmodules >/dev/null 2>&1; then
+            echo "Removing tracked .gitmodules from index"
+            git rm -f --cached .gitmodules || true
+          fi
+          find . -name .gitmodules -type f -print -exec rm -f {} \; || true
+          # Purge all submodule.* sections from local config
+          sections=$(git config --local --name-only --get-regexp '^submodule\.' | sed -E 's/^(submodule\.[^\.]+).*$/\1/' | sort -u || true)
+          for s in $sections; do
+            echo "Removing config section: $s"
+            git config --local --remove-section "$s" || true
+          done
+          # Best-effort deinit to ensure clean state (ignore errors)
           git submodule deinit -f --all || true
-          # Remove submodule sections from local config if present
+          # Status for visibility
           git config --local --list | sed -n 's/^submodule\..*/&/p' || true
-          # Best-effort remove common stale sections
-          git config --local --remove-section submodule.Lokok2 || true
-          # Remove .gitmodules if it exists and is not needed
-          rm -f .gitmodules || true
+          git status || true
 
       - name: Inject Railway token env for subsequent steps
         run: |
@@ -158,6 +169,7 @@ jobs:
           GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
           GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EXCEL_DOWNLOAD_URL_INPUT: ${{ github.event.inputs.EXCEL_DOWNLOAD_URL }}
           EXCEL_PATH_INPUT: ${{ github.event.inputs.EXCEL_PATH }}
           FORCE_LOCAL_EXCEL_INPUT: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
@@ -169,14 +181,22 @@ jobs:
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
           # Authenticate is implicit via token env var
-          railway variables USE_DB=false
+          # Configure database usage automatically when DATABASE_URL is provided
+          if [ -n "$DATABASE_URL" ]; then
+            railway variables USE_DB=true
+            railway variables DATABASE_URL="$DATABASE_URL"
+            echo "USE_DB=true (DATABASE_URL secret detected)"
+          else
+            railway variables USE_DB=false
+            echo "USE_DB=false (no DATABASE_URL secret)"
+          fi
           railway variables NODE_ENV=production
-          # Default to local Excel; will switch to Drive if credentials provided
+          # Default to local Excel; will switch to Drive automatically if Drive secret is present
           if [ -n "$FORCE_LOCAL_EXCEL_INPUT" ]; then
             railway variables FORCE_LOCAL_EXCEL="$FORCE_LOCAL_EXCEL_INPUT"
             echo "FORCE_LOCAL_EXCEL set from workflow input"
           else
-            echo "FORCE_LOCAL_EXCEL input empty; leaving existing variable unchanged"
+            echo "FORCE_LOCAL_EXCEL input empty; leaving existing variable unchanged for now"
           fi
           if [ -n "$EXCEL_PATH_INPUT" ]; then
             railway variables EXCEL_PATH="$EXCEL_PATH_INPUT"
@@ -192,10 +212,18 @@ jobs:
           # Google Drive credentials (optional)
           if [ -n "$GOOGLE_DRIVE_FILE_ID" ]; then
             railway variables GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
-            echo "GOOGLE_DRIVE_FILE_ID detected; Drive integration available (optional)"
+            echo "GOOGLE_DRIVE_FILE_ID detected; Drive enabled"
+            # Auto-toggle: prefer Drive source when Drive file is configured
+            railway variables FORCE_LOCAL_EXCEL=0
+            echo "FORCE_LOCAL_EXCEL=0 (auto) due to Drive secret present"
           else
             railway variables GOOGLE_DRIVE_FILE_ID=
-            echo "GOOGLE_DRIVE_FILE_ID not set; forcing local/public Excel path." >&2
+            echo "GOOGLE_DRIVE_FILE_ID not set; staying on local/public Excel path." >&2
+            # If no explicit input provided, ensure local Excel mode
+            if [ -z "$FORCE_LOCAL_EXCEL_INPUT" ]; then
+              railway variables FORCE_LOCAL_EXCEL=1
+              echo "FORCE_LOCAL_EXCEL=1 (auto) because Drive secret is absent"
+            fi
           fi
           if [ -n "$GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
             railway variables GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
@@ -212,6 +240,15 @@ jobs:
           else
             railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
           fi
+
+      - name: Summary (effective toggles)
+        run: |
+          echo "Summary of effective data-source configuration:"
+          echo "- DATABASE_URL secret: ${{ secrets.DATABASE_URL != '' && 'SET' || 'EMPTY' }}"
+          echo "- USE_DB: auto (true when DATABASE_URL set; false otherwise)"
+          echo "- GOOGLE_DRIVE_FILE_ID: ${{ secrets.GOOGLE_DRIVE_FILE_ID != '' && 'SET' || 'EMPTY' }}"
+          echo "- FORCE_LOCAL_EXCEL: ${{ github.event.inputs.FORCE_LOCAL_EXCEL != '' && github.event.inputs.FORCE_LOCAL_EXCEL || 'auto (0 with Drive, 1 without)' }}"
+          echo "- EXCEL_PATH input: ${{ github.event.inputs.EXCEL_PATH }}"
 
       - name: Download Excel file for exact local parity (optional)
         env:

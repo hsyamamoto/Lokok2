@@ -3,98 +3,191 @@ name: Set Railway Variables
 on:
   workflow_dispatch:
     inputs:
-      node_env:
-        description: "NODE_ENV (default: production)"
+      USE_DB:
+        description: 'USE_DB (true=usa banco, false=Excel/Drive)'
         required: false
-        default: "production"
-      force_local_excel:
-        description: "FORCE_LOCAL_EXCEL (default: 1)"
+        default: 'false'
+      NODE_ENV:
+        description: 'NODE_ENV (default: production)'
         required: false
-        default: "1"
-      excel_path:
-        description: "EXCEL_PATH (default: ./data/cached_spreadsheet.xlsx)"
+        default: 'production'
+      FORCE_LOCAL_EXCEL:
+        description: 'FORCE_LOCAL_EXCEL (1=força arquivo local, 0=permite URL)'
         required: false
-        default: "./data/cached_spreadsheet.xlsx"
-      session_secret:
-        description: "SESSION_SECRET override (leave empty to use secret)"
+        default: '1'
+      EXCEL_PATH:
+        description: 'Caminho do Excel ou URL pública XLSX'
         required: false
-        default: ""
-      google_drive_file_id:
-        description: "GOOGLE_DRIVE_FILE_ID (optional)"
+        default: './data/cached_spreadsheet.xlsx'
+      DATABASE_URL:
+        description: 'DATABASE_URL (opcional: define e ativa USE_DB=true quando presente)'
         required: false
-        default: ""
-      google_service_account_email:
-        description: "GOOGLE_SERVICE_ACCOUNT_EMAIL (optional)"
+        default: ''
+      SESSION_SECRET:
+        description: 'Override de SESSION_SECRET (vazio para não alterar)'
         required: false
-        default: ""
-      google_private_key:
-        description: "GOOGLE_PRIVATE_KEY (optional)"
+        default: ''
+      GOOGLE_DRIVE_FILE_ID:
+        description: 'ID do arquivo no Google Drive (opcional)'
         required: false
-        default: ""
-      default_admin_allowed_countries:
-        description: "DEFAULT_ADMIN_ALLOWED_COUNTRIES (default: US,CA,MX)"
+        default: ''
+      GOOGLE_SERVICE_ACCOUNT_EMAIL:
+        description: 'Email da service account (opcional)'
         required: false
-        default: "US,CA,MX"
+        default: ''
+      GOOGLE_PRIVATE_KEY:
+        description: 'Private key da service account (opcional)'
+        required: false
+        default: ''
+      DEFAULT_ADMIN_ALLOWED_COUNTRIES:
+        description: 'Países permitidos (default: US,CA,MX)'
+        required: false
+        default: 'US,CA,MX'
 
 jobs:
-  set-variables:
+  set-vars:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
+      - name: Inject Railway token env
+        run: |
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "RAILWAY_TOKEN=${{ secrets.RAILWAY_TOKEN }}" >> $GITHUB_ENV
+            echo "Using project token from RAILWAY_TOKEN"
+          elif [ -n "${{ secrets.RAILWAY_API_TOKEN }}" ]; then
+            echo "RAILWAY_TOKEN=${{ secrets.RAILWAY_API_TOKEN }}" >> $GITHUB_ENV
+            echo "RAILWAY_API_TOKEN=${{ secrets.RAILWAY_API_TOKEN }}" >> $GITHUB_ENV
+            echo "Using account/team token mapped to RAILWAY_TOKEN"
+          else
+            echo "No Railway token secrets provided" >&2
+          fi
 
-      - name: Set variables in Railway
+      - name: Validate tokens
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] && [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "ERROR: Defina RAILWAY_TOKEN (projeto) ou RAILWAY_API_TOKEN (conta/time) em GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Setup Node.js and Railway CLI
+        run: |
+          npm i -g @railway/cli
+          railway --version
+
+      - name: Link project when using API token
         env:
-          # Auth tokens (CLI will use RAILWAY_TOKEN first, then RAILWAY_API_TOKEN)
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-
-          # Use inputs with fallback to defaults/secrets
-          NODE_ENV: ${{ inputs.node_env }}
-          FORCE_LOCAL_EXCEL: ${{ inputs.force_local_excel }}
-          EXCEL_PATH: ${{ inputs.excel_path }}
-
-          # Secrets: prefer input override if provided, else repository secret
-          SESSION_SECRET_INPUT: ${{ inputs.session_secret }}
-          SESSION_SECRET_SECRET: ${{ secrets.SESSION_SECRET }}
-
-          GOOGLE_DRIVE_FILE_ID_INPUT: ${{ inputs.google_drive_file_id }}
-          GOOGLE_DRIVE_FILE_ID_SECRET: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
-
-          GOOGLE_SERVICE_ACCOUNT_EMAIL_INPUT: ${{ inputs.google_service_account_email }}
-          GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
-
-          GOOGLE_PRIVATE_KEY_INPUT: ${{ inputs.google_private_key }}
-          GOOGLE_PRIVATE_KEY_SECRET: ${{ secrets.GOOGLE_PRIVATE_KEY }}
-          DEFAULT_ADMIN_ALLOWED_COUNTRIES: ${{ inputs.default_admin_allowed_countries }}
         run: |
           set -e
-          set -o pipefail
-          echo "Authenticating Railway CLI..."
-          railway --version
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
+          if [ -n "$RAILWAY_API_TOKEN" ] && [ -n "$RAILWAY_PROJECT_ID" ]; then
+            echo "Linking to project $RAILWAY_PROJECT_ID"
+            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
+          else
+            echo "Project link step skipped (project token provided or missing RAILWAY_PROJECT_ID)."
+          fi
           railway status || true
 
-          # Resolve overrides for secrets: input has priority over repository secret
-          SESSION_SECRET=${SESSION_SECRET_INPUT:-$SESSION_SECRET_SECRET}
-          GOOGLE_DRIVE_FILE_ID=${GOOGLE_DRIVE_FILE_ID_INPUT:-$GOOGLE_DRIVE_FILE_ID_SECRET}
-          GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL_INPUT:-$GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}
-          GOOGLE_PRIVATE_KEY=${GOOGLE_PRIVATE_KEY_INPUT:-$GOOGLE_PRIVATE_KEY_SECRET}
+      - name: Set Railway variables
+        env:
+          INPUT_USE_DB: ${{ github.event.inputs.USE_DB }}
+          INPUT_NODE_ENV: ${{ github.event.inputs.NODE_ENV }}
+          INPUT_FORCE_LOCAL_EXCEL: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
+          INPUT_EXCEL_PATH: ${{ github.event.inputs.EXCEL_PATH }}
+          INPUT_SESSION_SECRET: ${{ github.event.inputs.SESSION_SECRET }}
+          INPUT_DATABASE_URL: ${{ github.event.inputs.DATABASE_URL }}
+          INPUT_GOOGLE_DRIVE_FILE_ID: ${{ github.event.inputs.GOOGLE_DRIVE_FILE_ID }}
+          INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ github.event.inputs.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          INPUT_GOOGLE_PRIVATE_KEY: ${{ github.event.inputs.GOOGLE_PRIVATE_KEY }}
+          INPUT_DEFAULT_ADMIN_ALLOWED_COUNTRIES: ${{ github.event.inputs.DEFAULT_ADMIN_ALLOWED_COUNTRIES }}
+          GOOGLE_DRIVE_FILE_ID_SECRET: ${{ secrets.GOOGLE_DRIVE_FILE_ID }}
+          DATABASE_URL_SECRET: ${{ secrets.DATABASE_URL }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          set -e
+          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
+          fi
+          # Required/defaulted variables
+          railway variables NODE_ENV="${INPUT_NODE_ENV:-production}"
+          # FORCE_LOCAL_EXCEL: set only if input is provided; otherwise auto-toggle later based on Drive ID
+          if [ -n "$INPUT_FORCE_LOCAL_EXCEL" ]; then
+            railway variables FORCE_LOCAL_EXCEL="$INPUT_FORCE_LOCAL_EXCEL"
+            echo "FORCE_LOCAL_EXCEL set from input: $INPUT_FORCE_LOCAL_EXCEL"
+          else
+            echo "FORCE_LOCAL_EXCEL left unchanged here; will auto-toggle based on Drive ID."
+          fi
+          railway variables EXCEL_PATH="${INPUT_EXCEL_PATH:-./data/cached_spreadsheet.xlsx}"
+          railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="${INPUT_DEFAULT_ADMIN_ALLOWED_COUNTRIES:-US,CA,MX}"
 
-          echo "Setting variables (only non-empty values will be applied)"
-          for VAR in NODE_ENV FORCE_LOCAL_EXCEL EXCEL_PATH SESSION_SECRET GOOGLE_DRIVE_FILE_ID GOOGLE_SERVICE_ACCOUNT_EMAIL GOOGLE_PRIVATE_KEY DEFAULT_ADMIN_ALLOWED_COUNTRIES; do
-            VALUE="${!VAR}"
-            if [ -n "$VALUE" ]; then
-              echo "Setting $VAR"
-              railway variables set "$VAR=$VALUE"
+          # Database URL and USE_DB handling
+          FINAL_DB_URL="${INPUT_DATABASE_URL:-$DATABASE_URL_SECRET}"
+          if [ -n "$FINAL_DB_URL" ]; then
+            railway variables DATABASE_URL="$FINAL_DB_URL"
+            echo "DATABASE_URL set."
+          fi
+          if [ -n "$INPUT_USE_DB" ]; then
+            railway variables USE_DB="$INPUT_USE_DB"
+            echo "USE_DB set from input: $INPUT_USE_DB"
+          else
+            if [ -n "$FINAL_DB_URL" ]; then
+              railway variables USE_DB=true
+              echo "USE_DB=TRUE (auto) because DATABASE_URL provided."
             else
-              echo "Skipping $VAR (empty)"
+              railway variables USE_DB=false
+              echo "USE_DB=FALSE (auto) because DATABASE_URL absent."
             fi
-          done
+          fi
+
+          # Optional overrides (only set when provided)
+          if [ -n "$INPUT_SESSION_SECRET" ]; then
+            railway variables SESSION_SECRET="$INPUT_SESSION_SECRET"
+          else
+            echo "SESSION_SECRET left unchanged (using existing secret or default)."
+          fi
+          # Drive ID: prefer input, otherwise use secret; auto-toggle FORCE_LOCAL_EXCEL accordingly when no explicit input
+          FINAL_DRIVE_ID="${INPUT_GOOGLE_DRIVE_FILE_ID:-$GOOGLE_DRIVE_FILE_ID_SECRET}"
+          if [ -n "$FINAL_DRIVE_ID" ]; then
+            railway variables GOOGLE_DRIVE_FILE_ID="$FINAL_DRIVE_ID"
+            echo "GOOGLE_DRIVE_FILE_ID set (Drive enabled)."
+            if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
+              railway variables FORCE_LOCAL_EXCEL=0
+              echo "FORCE_LOCAL_EXCEL=0 (auto) due to Drive ID present."
+            fi
+          else
+            railway variables GOOGLE_DRIVE_FILE_ID=
+            echo "GOOGLE_DRIVE_FILE_ID empty; Drive disabled."
+            if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
+              railway variables FORCE_LOCAL_EXCEL=1
+              echo "FORCE_LOCAL_EXCEL=1 (auto) because Drive ID absent."
+            fi
+          fi
+          if [ -n "$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
+            railway variables GOOGLE_SERVICE_ACCOUNT_EMAIL="$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL"
+          fi
+          if [ -n "$INPUT_GOOGLE_PRIVATE_KEY" ]; then
+            railway variables GOOGLE_PRIVATE_KEY="$INPUT_GOOGLE_PRIVATE_KEY"
+          fi
+
+      - name: Summary
+        run: |
+          echo "Variables set:"
+          echo "- USE_DB=${{ github.event.inputs.USE_DB }} (auto true when DATABASE_URL present and no input)"
+          echo "- DATABASE_URL=${{ github.event.inputs.DATABASE_URL != '' && 'FROM INPUT' || (secrets.DATABASE_URL != '' && 'FROM SECRET' || 'EMPTY') }}"
+          echo "- NODE_ENV=${{ github.event.inputs.NODE_ENV }}"
+          echo "- FORCE_LOCAL_EXCEL=${{ github.event.inputs.FORCE_LOCAL_EXCEL }} (auto when Drive ID present/absent and no input)"
+          echo "- EXCEL_PATH=${{ github.event.inputs.EXCEL_PATH }}"
+          echo "- DEFAULT_ADMIN_ALLOWED_COUNTRIES=${{ github.event.inputs.DEFAULT_ADMIN_ALLOWED_COUNTRIES }}"
+          echo "Optionals: SESSION_SECRET, GOOGLE_DRIVE_FILE_ID (input/secret), GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY"

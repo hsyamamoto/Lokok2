@@ -37,7 +37,8 @@ class User {
 
     // Método para verificar se é gerente
     isManager() {
-        return this.role === 'gerente';
+        // Support both 'gerente' (PT) and 'manager' (EN)
+        return this.role === 'gerente' || this.role === 'manager';
     }
 
     // Método para converter para objeto simples (sem métodos)

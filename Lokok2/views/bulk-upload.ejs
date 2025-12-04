@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Upload - LOKOK System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'sans': ['Geist', 'system-ui', 'sans-serif'],
+                        'mono': ['Geist Mono', 'monospace']
+                    },
+                    fontSize: {
+                        'base': '16px'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 font-sans text-base">
+    <!-- Navbar -->
+    <nav class="bg-gradient-to-r from-sky-200 to-blue-200 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <a href="/dashboard" class="text-xl font-semibold text-blue-800 hover:text-blue-900 transition-colors duration-200">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        LOKOK System
+                    </a>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-blue-700">
+                        Welcome, <span class="font-medium"><%= user.name %></span>
+                    </span>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                        <%= user.role %>
+                    </span>
+                    <div class="relative group">
+                        <button class="text-sm text-blue-700 hover:text-blue-900 transition-colors duration-200 flex items-center">
+                            <i class="fas fa-user mr-1"></i>
+                            Menu
+                            <i class="fas fa-chevron-down ml-1 text-xs"></i>
+                        </button>
+                        <div class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                            <div class="py-1">
+                                <a href="/dashboard" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200">
+                                    <i class="fas fa-tachometer-alt mr-2"></i>
+                                    Dashboard
+                                </a>
+                                <a href="/search" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200">
+                                    <i class="fas fa-search mr-2"></i>
+                                    Search
+                                </a>
+                                <a href="/form" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200">
+                                    <i class="fas fa-plus mr-2"></i>
+                                    Add Record
+                                </a>
+                                <a href="/bulk-upload" class="flex items-center px-4 py-2 text-sm text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors duration-200">
+                                    <i class="fas fa-file-excel mr-2"></i>
+                                    Bulk Upload
+                                </a>
+                                <% if (user && user.role === 'admin') { %>
+                                <a href="/users" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200">
+                                    <i class="fas fa-users mr-2"></i>
+                                    Users
+                                </a>
+                                <% } %>
+                                <hr class="my-1">
+                                <a href="/logout" class="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200">
+                                    <i class="fas fa-sign-out-alt mr-2"></i>
+                                    Logout
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">
+                <i class="fas fa-file-excel mr-3 text-emerald-500"></i>
+                Bulk Upload Suppliers
+            </h1>
+            <p class="text-base text-gray-600">Upload multiple suppliers at once using an Excel file</p>
+        </div>
+
+        <!-- Instructions Card -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+            <h2 class="text-lg font-semibold text-blue-800 mb-3">
+                <i class="fas fa-info-circle mr-2"></i>
+<<<<<<< HEAD
+                Como usar o Upload em Lote
+            </h2>
+            <ol class="list-decimal list-inside space-y-2 text-blue-700">
+                <li>Baixe o template Excel clicando no botão abaixo.</li>
+                <li>Preencha os dados seguindo exatamente os cabeçalhos do template.</li>
+                <li>Salve o arquivo e faça o upload na área indicada.</li>
+                <li>Revise os resultados e verifique possíveis avisos/erros.</li>
+            </ol>
+
+            <!-- Campos Suportados -->
+            <div class="mt-5 bg-white border border-blue-200 rounded-lg p-5">
+                <p class="text-sm text-blue-800 font-semibold mb-3">Campos suportados (US / CA / MX)</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <p class="text-sm font-medium text-blue-800 mb-2">Obrigatórios</p>
+                        <ul class="list-disc list-inside text-sm text-blue-700 space-y-1">
+                            <li>Name</li>
+                            <li>CATEGORÍA</li>
+                        </ul>
+                    </div>
+                    <div class="md:col-span-2">
+                        <p class="text-sm font-medium text-blue-800 mb-2">Opcionais</p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Website</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Account Request Status</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">DATE</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Responsable</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">STATUS (...)</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Description/Notes</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Contact Name</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Contact Phone</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">E-Mail</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Address</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">User</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PASSWORD</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">LLAMAR</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PRIO (1 - TOP, 5 - bajo)</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">Comments</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p class="text-sm font-medium text-blue-800 mb-2">STATUS (coluna)</p>
+                        <p class="text-xs text-blue-700 mb-2">Cabeçalho exato: "STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)"</p>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">BUYING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">PENDING APPROVAL</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT COMPETITIVE</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT INTERESTING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">RED FLAG</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CHECKING</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">REJECTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">FOLLOW UP</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CURRENTLY NOT PRIORITY</span>
+                        </div>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                        <p class="text-sm font-medium text-blue-800 mb-2">Account Request Status (coluna)</p>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">APPROVED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT REQUESTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">CHECK AGAIN</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">NOT APPROVED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">REQUESTED</span>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded">TO OPEN</span>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-xs text-blue-700 mt-4">Observação: o registro é salvo automaticamente na aba do país selecionado (US/CA/MX). O template é compatível com os três ambientes.</p>
+            </div>
+=======
+                How to Use Bulk Upload
+            </h2>
+            <ol class="list-decimal list-inside space-y-2 text-blue-700">
+                <li>Download the Excel template by clicking the button below</li>
+                <li>Fill in your supplier data following the template format</li>
+                <li>Save the file and upload it using the upload area</li>
+                <li>Review the results and check for any errors</li>
+            </ol>
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+        </div>
+
+        <!-- Bulk Upload Section -->
+        <div class="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl shadow-lg p-8 border border-emerald-200">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-emerald-800 mb-2">
+                        <i class="fas fa-cloud-upload-alt mr-3 text-emerald-600"></i>
+                        Upload Excel File
+                    </h2>
+<<<<<<< HEAD
+                    <p class="text-emerald-700">Selecione seu arquivo Excel com os dados dos fornecedores</p>
+                </div>
+                <a href="/download-template" class="inline-flex items-center px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 shadow-md">
+                    <i class="fas fa-download mr-2"></i>
+                    Baixar Template (compatível US/CA/MX)
+=======
+                    <p class="text-emerald-700">Select your Excel file with supplier data</p>
+                </div>
+                <a href="/download-template" class="inline-flex items-center px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors duration-200 shadow-md">
+                    <i class="fas fa-download mr-2"></i>
+                    Download Template
+>>>>>>> ceba69d (Initial commit - Sistema LOKOK)
+                </a>
+            </div>
+            
+            <form id="bulkUploadForm" enctype="multipart/form-data" class="space-y-6">
+                <div class="flex items-center justify-center w-full">
+                    <label for="excelFile" class="flex flex-col items-center justify-center w-full h-40 border-2 border-emerald-300 border-dashed rounded-lg cursor-pointer bg-emerald-50 hover:bg-emerald-100 transition-colors duration-200">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <i class="fas fa-cloud-upload-alt text-4xl text-emerald-500 mb-3"></i>
+                            <p class="mb-2 text-lg text-emerald-700">
+                                <span class="font-semibold">Click to upload</span> or drag and drop
+                            </p>
+                            <p class="text-sm text-emerald-600">Excel files only (.xlsx, .xls) - Maximum 10MB</p>
+                        </div>
+                        <input id="excelFile" name="excelFile" type="file" accept=".xlsx,.xls" class="hidden" />
+                    </label>
+                </div>
+                
+                <div id="fileInfo" class="hidden bg-white p-6 rounded-lg border border-emerald-200 shadow-sm">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <i class="fas fa-file-excel text-emerald-600 mr-3 text-xl"></i>
+                            <div>
+                                <span id="fileName" class="text-lg font-medium text-gray-700"></span>
+                                <p id="fileSize" class="text-sm text-gray-500"></p>
+                            </div>
+                        </div>
+                        <button type="button" id="removeFile" class="text-red-500 hover:text-red-700 p-2">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <button type="submit" id="uploadBtn" class="w-full bg-emerald-600 text-white py-4 px-6 rounded-lg hover:bg-emerald-700 transition-colors duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed text-lg font-medium" disabled>
+                    <i class="fas fa-upload mr-2"></i>
+                    Upload Excel File
+                </button>
+            </form>
+            
+            <div id="uploadProgress" class="hidden mt-6">
+                <div class="bg-gray-200 rounded-full h-3">
+                    <div id="progressBar" class="bg-emerald-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <p id="progressText" class="text-sm text-emerald-700 mt-2 text-center">Processing...</p>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="hidden mt-8">
+            <div class="bg-white rounded-xl shadow-lg p-8">
+                <h3 class="text-xl font-bold text-gray-900 mb-4">
+                    <i class="fas fa-chart-bar mr-2 text-blue-500"></i>
+                    Upload Results
+                </h3>
+                <div id="resultsContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div class="bg-gradient-to-r from-emerald-300 to-emerald-400 text-emerald-800 p-6 rounded-t-xl">
+                <h3 class="text-xl font-semibold flex items-center">
+                    <i class="fas fa-check-circle mr-2"></i>
+                    Success!
+                </h3>
+            </div>
+            <div class="p-6">
+                <p id="successMessage" class="text-base text-gray-700">Records uploaded successfully.</p>
+            </div>
+            <div class="p-6 pt-0 flex justify-end space-x-3">
+                <button onclick="closeModal('successModal')" class="px-4 py-2 bg-emerald-300 text-emerald-800 rounded-lg hover:bg-emerald-400 transition-colors duration-200">
+                    OK
+                </button>
+                <a href="/dashboard" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+                    Go to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div class="bg-gradient-to-r from-rose-300 to-rose-400 text-rose-800 p-6 rounded-t-xl">
+                <h3 class="text-xl font-semibold flex items-center">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    Error!
+                </h3>
+            </div>
+            <div class="p-6">
+                <p id="errorMessage" class="text-base text-gray-700">An error occurred while uploading the file.</p>
+            </div>
+            <div class="p-6 pt-0 flex justify-end">
+                <button onclick="closeModal('errorModal')" class="px-4 py-2 bg-rose-300 text-rose-800 rounded-lg hover:bg-rose-400 transition-colors duration-200">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+        }
+
+        // File upload functionality
+        const excelFileInput = document.getElementById('excelFile');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const removeFileBtn = document.getElementById('removeFile');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsContent = document.getElementById('resultsContent');
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        excelFileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                fileName.textContent = file.name;
+                fileSize.textContent = formatFileSize(file.size);
+                fileInfo.classList.remove('hidden');
+                uploadBtn.disabled = false;
+            }
+        });
+
+        removeFileBtn.addEventListener('click', function() {
+            excelFileInput.value = '';
+            fileInfo.classList.add('hidden');
+            uploadBtn.disabled = true;
+            resultsSection.classList.add('hidden');
+        });
+
+        document.getElementById('bulkUploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const file = excelFileInput.files[0];
+            
+            if (!file) {
+                document.getElementById('errorMessage').textContent = 'Please select an Excel file.';
+                document.getElementById('errorModal').classList.remove('hidden');
+                return;
+            }
+            
+            formData.append('excelFile', file);
+            
+            // Show progress
+            uploadProgress.classList.remove('hidden');
+            uploadBtn.disabled = true;
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Uploading file...';
+            resultsSection.classList.add('hidden');
+            
+            try {
+                const response = await fetch('/bulk-upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                // Simulate progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 10;
+                    progressBar.style.width = progress + '%';
+                    if (progress >= 90) {
+                        clearInterval(progressInterval);
+                        progressText.textContent = 'Processing data...';
+                    }
+                }, 100);
+                
+                const result = await response.json();
+                
+                // Complete progress
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                setTimeout(() => {
+                    uploadProgress.classList.add('hidden');
+                    uploadBtn.disabled = false;
+                    
+                    if (result.success) {
+                        // Show results
+                        showResults(result);
+                        
+                        document.getElementById('successMessage').textContent = 
+                            `Successfully uploaded ${result.recordsAdded} records from Excel file.`;
+                        document.getElementById('successModal').classList.remove('hidden');
+                        
+                        // Reset form
+                        excelFileInput.value = '';
+                        fileInfo.classList.add('hidden');
+                        uploadBtn.disabled = true;
+                    } else {
+                        document.getElementById('errorMessage').textContent = result.message;
+                        document.getElementById('errorModal').classList.remove('hidden');
+                    }
+                }, 1000);
+                
+            } catch (error) {
+                uploadProgress.classList.add('hidden');
+                uploadBtn.disabled = false;
+                document.getElementById('errorMessage').textContent = 'Error uploading file. Please try again.';
+                document.getElementById('errorModal').classList.remove('hidden');
+            }
+        });
+
+        function showResults(result) {
+            let html = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
+                        <div class="flex items-center">
+                            <i class="fas fa-check-circle text-emerald-600 text-2xl mr-3"></i>
+                            <div>
+                                <p class="text-sm text-emerald-600">Records Added</p>
+                                <p class="text-2xl font-bold text-emerald-800">${result.recordsAdded}</p>
+                            </div>
+                        </div>
+                    </div>
+            `;
+            
+            if (result.warnings && result.warnings.length > 0) {
+                html += `
+                    <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                        <div class="flex items-center">
+                            <i class="fas fa-exclamation-triangle text-yellow-600 text-2xl mr-3"></i>
+                            <div>
+                                <p class="text-sm text-yellow-600">Warnings</p>
+                                <p class="text-2xl font-bold text-yellow-800">${result.warnings.length}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += `</div>`;
+            
+            if (result.warnings && result.warnings.length > 0) {
+                html += `
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <h4 class="font-semibold text-yellow-800 mb-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            Warnings:
+                        </h4>
+                        <ul class="list-disc list-inside space-y-1 text-yellow-700">
+                `;
+                
+                result.warnings.forEach(warning => {
+                    html += `<li class="text-sm">${warning}</li>`;
+                });
+                
+                html += `</ul></div>`;
+            }
+            
+            resultsContent.innerHTML = html;
+            resultsSection.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>

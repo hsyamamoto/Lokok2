@@ -125,9 +125,9 @@
                     <div>
                         <label for="website" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-globe mr-1"></i>
-                            Website
+                            Website *
                         </label>
-                        <input type="url" id="website" name="website"
+                        <input type="url" id="website" name="website" required
                                value="<%= record.Website || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                     </div>
@@ -143,12 +143,12 @@
                     <div>
                         <label for="responsable" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-user-tie mr-1"></i>
-                            Manager
+                            Responsable Buyer
                         </label>
                         <input type="text" id="responsable" name="responsable"
                                value="<%= record.Responsable || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200"
-                               placeholder="Manager name">
+                               placeholder="Type buyer name">
                     </div>
                 </div>
             </div>
@@ -163,27 +163,47 @@
                     <div>
                         <label for="accountRequestStatus" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-clipboard-check mr-1"></i>
-                            Account Request Status
+                            Account Status
                         </label>
                         <select id="accountRequestStatus" name="accountRequestStatus"
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                             <option value="">Select...</option>
-                            <option value="Pending" <%= (record['Account Request Status'] === 'Pending') ? 'selected' : '' %>>Pending</option>
-                            <option value="Approved" <%= (record['Account Request Status'] === 'Approved') ? 'selected' : '' %>>Approved</option>
-                            <option value="Rejected" <%= (record['Account Request Status'] === 'Rejected') ? 'selected' : '' %>>Rejected</option>
+                            <option value="APPROVED" <%= (record['Account Request Status'] === 'APPROVED') ? 'selected' : '' %>>APPROVED</option>
+                            <option value="NOT REQUESTED" <%= (record['Account Request Status'] === 'NOT REQUESTED') ? 'selected' : '' %>>NOT REQUESTED</option>
+                            <option value="CHECK AGAIN" <%= (record['Account Request Status'] === 'CHECK AGAIN') ? 'selected' : '' %>>CHECK AGAIN</option>
+                            <option value="NOT APPROVED" <%= (record['Account Request Status'] === 'NOT APPROVED') ? 'selected' : '' %>>NOT APPROVED</option>
+                            <option value="REQUESTED" <%= (record['Account Request Status'] === 'REQUESTED') ? 'selected' : '' %>>REQUESTED</option>
+                            <option value="TO OPEN" <%= (record['Account Request Status'] === 'TO OPEN') ? 'selected' : '' %>>TO OPEN</option>
                         </select>
                     </div>
                     <div>
-                        <label for="generalStatus" class="block text-sm font-medium text-gray-700 mb-2">
+                        <label for="status" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-flag mr-1"></i>
-                            General Status
+                            Status
                         </label>
-                        <select id="generalStatus" name="generalStatus"
+                        <% const currentStatus = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || ''; %>
+                        <select id="status" name="status"
                                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                             <option value="">Select...</option>
-                            <option value="Active" <%= (record['General Status'] === 'Active') ? 'selected' : '' %>>Active</option>
-                            <option value="Inactive" <%= (record['General Status'] === 'Inactive') ? 'selected' : '' %>>Inactive</option>
-                            <option value="Suspended" <%= (record['General Status'] === 'Suspended') ? 'selected' : '' %>>Suspended</option>
+                            <option value="BUYING" <%= currentStatus === 'BUYING' ? 'selected' : '' %>>BUYING</option>
+                            <option value="CHECKING" <%= currentStatus === 'CHECKING' ? 'selected' : '' %>>CHECKING</option>
+                            <option value="WORK WITH DISTRIBUTORS" <%= currentStatus === 'WORK WITH DISTRIBUTORS' ? 'selected' : '' %>>WORK WITH DISTRIBUTORS</option>
+                            <option value="WEBSITE NOT WORKING" <%= currentStatus === 'WEBSITE NOT WORKING' ? 'selected' : '' %>>WEBSITE NOT WORKING</option>
+                            <option value="TO DEFINE" <%= currentStatus === 'TO DEFINE' ? 'selected' : '' %>>TO DEFINE</option>
+                            <option value="SEEMS NOT LEGIT" <%= currentStatus === 'SEEMS NOT LEGIT' ? 'selected' : '' %>>SEEMS NOT LEGIT</option>
+                            <option value="RETAILER" <%= currentStatus === 'RETAILER' ? 'selected' : '' %>>RETAILER</option>
+                            <option value="REJECTED" <%= currentStatus === 'REJECTED' ? 'selected' : '' %>>REJECTED</option>
+                            <option value="RED FLAG" <%= currentStatus === 'RED FLAG' ? 'selected' : '' %>>RED FLAG</option>
+                            <option value="PENDING APPROVAL" <%= currentStatus === 'PENDING APPROVAL' ? 'selected' : '' %>>PENDING APPROVAL</option>
+                            <option value="ONLY BRICK & MORTAR STORES" <%= currentStatus === 'ONLY BRICK & MORTAR STORES' ? 'selected' : '' %>>ONLY BRICK & MORTAR STORES</option>
+                            <option value="NOT INTERESTING" <%= currentStatus === 'NOT INTERESTING' ? 'selected' : '' %>>NOT INTERESTING</option>
+                            <option value="NOT COMPETITIVE" <%= currentStatus === 'NOT COMPETITIVE' ? 'selected' : '' %>>NOT COMPETITIVE</option>
+                            <option value="NOT 3RD PARTY SELLERS" <%= currentStatus === 'NOT 3RD PARTY SELLERS' ? 'selected' : '' %>>NOT 3RD PARTY SELLERS</option>
+                            <option value="NO AUTHENTICITY" <%= currentStatus === 'NO AUTHENTICITY' ? 'selected' : '' %>>NO AUTHENTICITY</option>
+                            <option value="NO AMAZON CURRENTLY" <%= currentStatus === 'NO AMAZON CURRENTLY' ? 'selected' : '' %>>NO AMAZON CURRENTLY</option>
+                            <option value="NO AMAZON" <%= currentStatus === 'NO AMAZON' ? 'selected' : '' %>>NO AMAZON</option>
+                            <option value="FOLLOW UP" <%= currentStatus === 'FOLLOW UP' ? 'selected' : '' %>>FOLLOW UP</option>
+                            <option value="CURRENTLY NOT PRIORITY" <%= currentStatus === 'CURRENTLY NOT PRIORITY' ? 'selected' : '' %>>CURRENTLY NOT PRIORITY</option>
                         </select>
                     </div>
                 </div>
@@ -208,7 +228,7 @@
                     <div>
                         <label for="contactEmail" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-envelope mr-1"></i>
-                            Contact Email
+                            Email
                         </label>
                         <input type="email" id="contactEmail" name="contactEmail"
                                value="<%= record['Contact Email'] || '' %>"
@@ -217,7 +237,7 @@
                     <div>
                         <label for="contactPhone" class="block text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-phone mr-1"></i>
-                            Contact Phone
+                            Phone
                         </label>
                         <input type="tel" id="contactPhone" name="contactPhone"
                                value="<%= record['Contact Phone'] || '' %>"

@@ -294,13 +294,20 @@
                                             </td>
                                             <td class="px-4 py-2 text-sm">
                                                 <% if (canSeeDetails) { %>
-                                                    <% let statusClass = 'bg-gray-100 text-gray-800';
-                                                       let status = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
+                                                    <% 
+                                                       let statusClass = 'bg-gray-100 text-gray-800';
+                                                       let statusRaw = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
+                                                       let status = statusRaw;
+                                                       // Normalize broken status like "CKING URRRENTLY NOT PRIORITY" to "CHECKING"
+                                                       if (/CKING.*NOT PRIORITY/i.test(statusRaw)) {
+                                                           status = 'CHECKING';
+                                                       }
                                                        if (status.includes('BUYING')) statusClass = 'bg-green-100 text-green-800';
                                                        else if (status.includes('PENDING')) statusClass = 'bg-yellow-100 text-yellow-800';
-                                                       else if (status.includes('CHECKING')) statusClass = 'bg-cyan-100 text-cyan-800';
+                                                       else if (status.includes('CHECKING')) statusClass = 'bg-green-100 text-green-800';
                                                        else if (status.includes('NOT')) statusClass = 'bg-red-100 text-red-800';
-                                                       else if (status.includes('RED FLAG')) statusClass = 'bg-red-100 text-red-800'; %>
+                                                       else if (status.includes('RED FLAG')) statusClass = 'bg-red-100 text-red-800'; 
+                                                    %>
                                                     <span class="<%= statusClass %> px-2 py-1 rounded-lg text-xs font-medium break-words"><%= status %></span>
                                                 <% } else { %>
                                                     <span class="text-gray-400">—</span>
@@ -319,10 +326,10 @@
                                             <td class="px-4 py-2 text-sm">
                                                 <% if (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)) { %>
                                                     <div class="flex items-center gap-2">
-                                                        <a href="/edit/<%= record._realIndex %>" class="inline-flex items-center px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600">
+                                                        <a href="/edit/<%= record._realIndexCountry %>?country=<%= record._countryCode %>" class="inline-flex items-center px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600">
                                                             <i class="fas fa-edit mr-1"></i> Edit
                                                         </a>
-                                                        <button type="button" data-id="<%= record._realIndex %>" class="btn-delete inline-flex items-center px-2 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600">
+                                                        <button type="button" data-id="<%= record._realIndexCountry %>" data-country="<%= record._countryCode %>" class="btn-delete inline-flex items-center px-2 py-1 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600">
                                                             <i class="fas fa-trash-alt mr-1"></i> Delete
                                                         </button>
                                                     </div>
@@ -391,10 +398,15 @@
                                         <div class="text-xs text-gray-500 mb-1"><i class="fas fa-flag mr-1"></i>Status:</div>
                                         <% 
                                         let statusClass = 'bg-gray-100 text-gray-800';
-                                        let status = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
+                                        let statusRaw = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
+                                        let status = statusRaw;
+                                        // Normalize broken status like "CKING URRRENTLY NOT PRIORITY" to "CHECKING"
+                                        if (/CKING.*NOT PRIORITY/i.test(statusRaw)) {
+                                            status = 'CHECKING';
+                                        }
                                         if (status.includes('BUYING')) statusClass = 'bg-green-100 text-green-800';
                                         else if (status.includes('PENDING')) statusClass = 'bg-yellow-100 text-yellow-800';
-                                        else if (status.includes('CHECKING')) statusClass = 'bg-cyan-100 text-cyan-800';
+                                        else if (status.includes('CHECKING')) statusClass = 'bg-green-100 text-green-800';
                                         else if (status.includes('NOT')) statusClass = 'bg-red-100 text-red-800';
                                         else if (status.includes('RED FLAG')) statusClass = 'bg-red-100 text-red-800';
                                         %>
@@ -454,12 +466,12 @@
                                     <!-- Botões de Ação -->
                                     <% if (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)) { %>
                                     <div class="border-t border-gray-200 pt-3 mt-3 flex items-center gap-2">
-                                        <a href="/edit/<%= record._realIndex %>" 
+                                        <a href="/edit/<%= record._realIndexCountry %>?country=<%= record._countryCode %>" 
                                            class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
                                             <i class="fas fa-edit mr-2"></i>
                                             Edit
                                         </a>
-                                        <button type="button" data-id="<%= record._realIndex %>" 
+                                        <button type="button" data-id="<%= record._realIndexCountry %>" data-country="<%= record._countryCode %>" 
                                             class="btn-delete inline-flex items-center px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
                                             <i class="fas fa-trash-alt mr-2"></i>
                                             Delete
@@ -581,7 +593,9 @@
                     const originalHtml = btn.innerHTML;
                     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Deleting...';
                     try {
-                        const response = await fetch(`/records/${id}`, { method: 'DELETE' });
+                        const country = btn.getAttribute('data-country') || '';
+                        const qs = country ? `?country=${encodeURIComponent(country)}` : '';
+                        const response = await fetch(`/records/${id}${qs}`, { method: 'DELETE' });
                         const result = await response.json().catch(() => ({ success: false }));
                         if (response.ok && result.success) {
                             const row = btn.closest('tr');

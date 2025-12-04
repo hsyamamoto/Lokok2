@@ -2,6 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const XLSX = require('xlsx');
+const { google } = require('googleapis');
 
 class GoogleDriveService {
     constructor() {
@@ -10,6 +11,10 @@ class GoogleDriveService {
         this.password = process.env.GOOGLE_DRIVE_PASSWORD;
         this.localCachePath = path.join(__dirname, 'data', 'cached_spreadsheet.xlsx');
         this.cacheMaxAge = 5 * 60 * 1000; // 5 minutos em milliseconds
+        this.serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+        this.serviceAccountKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+        this.sheetGid = process.env.GOOGLE_SHEET_GID; // opcional: alvo exato via gid da aba
+        this.cachePinFile = path.join(__dirname, 'data', 'cache_pin.json');
     }
 
     /**
@@ -30,7 +35,7 @@ class GoogleDriveService {
     }
 
     /**
-     * Garante que existam abas vazias para CANADA/MEXICO/CHINA com a mesma estrutura
+     * Garante que existam abas vazias para CANADA/MEXICO com a mesma estrutura
      */
     ensureCountrySheets(workbook) {
         if (!workbook || !workbook.SheetNames) return { changed: false };
@@ -38,7 +43,6 @@ class GoogleDriveService {
         const hasUS = sheetNames.includes('Wholesale LOKOK');
         const hasCA = sheetNames.includes('Wholesale CANADA');
         const hasMX = sheetNames.includes('Wholesale MEXICO');
-        const hasCN = sheetNames.includes('Wholesale CHINA');
         let changed = false;
 
         const baseWs = hasUS ? workbook.Sheets['Wholesale LOKOK'] : workbook.Sheets[sheetNames[0]];
@@ -59,13 +63,7 @@ class GoogleDriveService {
             changed = true;
             console.log('📄 [PRODUCTION DEBUG] Criada aba vazia: Wholesale MEXICO');
         }
-        if (!hasCN) {
-            const emptyWS_CN = XLSX.utils.aoa_to_sheet(emptySheetAoA);
-            workbook.Sheets['Wholesale CHINA'] = emptyWS_CN;
-            workbook.SheetNames.push('Wholesale CHINA');
-            changed = true;
-            console.log('📄 [PRODUCTION DEBUG] Criada aba vazia: Wholesale CHINA');
-        }
+        // Sem suporte a CN/CHINA
 
         return { changed };
     }
@@ -77,15 +75,123 @@ class GoogleDriveService {
         const c = String(country || '').toUpperCase();
         if (c === 'CA') return 'Wholesale CANADA';
         if (c === 'MX') return 'Wholesale MEXICO';
-        if (c === 'CN') return 'Wholesale CHINA';
         return 'Wholesale LOKOK'; // US padrão
     }
 
     /**
-     * Converte URL do Google Drive para URL de download direto
+     * Resolve de forma tolerante o nome da aba para o país,
+     * aceitando variações de capitalização como "Wholesale Mexico"/"Wholesale CANADA".
      */
-    getDirectDownloadUrl() {
-        return `https://drive.google.com/uc?export=download&id=${this.fileId}`;
+    findSheetTitleForCountry(sheetNames, country) {
+        const normalize = (s) => String(s || '').trim().toUpperCase();
+        const preferred = this.getSheetNameForCountry(country);
+        const preferredNorm = normalize(preferred);
+        const namesMap = new Map(sheetNames.map(n => [normalize(n), n]));
+
+        console.log('[TELEMETRY] resolveSheetDrive:start', {
+            country: String(country || '').toUpperCase(),
+            preferred,
+            candidatesCount: (sheetNames || []).length,
+            candidates: sheetNames || [],
+        });
+
+        if (namesMap.has(preferredNorm)) {
+            const result = namesMap.get(preferredNorm);
+            console.log('[TELEMETRY] resolveSheetDrive:exact', { result });
+            return result;
+        }
+
+        // Tentar por tokens do país na aba (tolerante, incluindo variantes comuns)
+        const c = String(country || '').toUpperCase();
+        const tokens = (c === 'MX')
+            ? ['MEXICO']
+            : (c === 'CA')
+                ? ['CANADA']
+                : ['LOKOK', 'USA', 'UNITED STATES']; // US
+        for (const token of tokens) {
+            const tokenMatch = sheetNames.find(n => normalize(n).includes(token));
+            if (tokenMatch) {
+                console.log('[TELEMETRY] resolveSheetDrive:token', { token, result: tokenMatch });
+                return tokenMatch;
+            }
+        }
+
+        // Variações comuns de capitalização
+        const variants = [
+            preferred,
+            preferred.toLowerCase(),
+            preferred.toUpperCase(),
+            // MX
+            (c === 'MX') ? 'Wholesale Mexico' : null,
+            // CA
+            (c === 'CA') ? 'Wholesale Canada' : null,
+            // US
+            (c === 'US') ? 'Wholesale Lokok' : null,
+        ].filter(Boolean);
+        for (const v of variants) {
+            const vNorm = normalize(v);
+            if (namesMap.has(vNorm)) {
+                const result = namesMap.get(vNorm);
+                console.log('[TELEMETRY] resolveSheetDrive:variant', { tried: v, result });
+                return result;
+            }
+        }
+
+        console.log('[TELEMETRY] resolveSheetDrive:none', { country: String(country || '').toUpperCase() });
+        return null; // não encontrada
+    }
+
+    /**
+     * Inicializa auth e cliente da API Google Sheets quando credenciais estão presentes
+     */
+    async getSheetsClient() {
+        try {
+            if (!this.serviceAccountEmail || !this.serviceAccountKey) return null;
+            const auth = new google.auth.JWT(
+                this.serviceAccountEmail,
+                null,
+                this.serviceAccountKey,
+                ['https://www.googleapis.com/auth/spreadsheets']
+            );
+            await auth.authorize();
+            return google.sheets({ version: 'v4', auth });
+        } catch (error) {
+            console.error('❌ Falha ao inicializar Google Sheets API:', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Obtém o título da aba pelo GID, se fornecido nas variáveis de ambiente
+     */
+    async resolveSheetTitleByGidIfProvided(sheetsClient) {
+        try {
+            if (!this.sheetGid) return null;
+            const gidNum = Number(this.sheetGid);
+            if (!Number.isFinite(gidNum)) return null;
+            const meta = await sheetsClient.spreadsheets.get({
+                spreadsheetId: this.fileId,
+            });
+            const tabs = meta?.data?.sheets || [];
+            const match = tabs.find(t => t?.properties?.sheetId === gidNum);
+            return match?.properties?.title || null;
+        } catch (error) {
+            console.warn('⚠️ Não foi possível resolver título por GID:', error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Retorna URLs candidatas para download: export de Google Sheets e fallback do Drive
+     */
+    getCandidateDownloadUrls() {
+        const id = this.fileId;
+        return [
+            // Google Sheets (export em XLSX)
+            `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`,
+            // Fallback genérico do Drive
+            `https://drive.google.com/uc?export=download&id=${id}`
+        ];
     }
 
     /**
@@ -100,11 +206,41 @@ class GoogleDriveService {
             const stats = fs.statSync(this.localCachePath);
             const now = new Date().getTime();
             const fileTime = new Date(stats.mtime).getTime();
-            
+            // Respeitar pin de cache (se presente) para evitar re-download que sobrescreva dados salvos localmente
+            try {
+                if (fs.existsSync(this.cachePinFile)) {
+                    const raw = fs.readFileSync(this.cachePinFile, 'utf8');
+                    const obj = JSON.parse(raw);
+                    const pinUntil = Number(obj.pinUntil) || 0;
+                    if (pinUntil > 0 && now < pinUntil) {
+                        return true;
+                    }
+                }
+            } catch (_) {
+                // Ignorar erros ao ler pin
+            }
             return (now - fileTime) < this.cacheMaxAge;
         } catch (error) {
             console.error('Erro ao verificar cache:', error);
             return false;
+        }
+    }
+
+    /**
+     * Pina o cache por um período específico (ms). Útil quando apenas
+     * salvamos localmente e queremos manter a leitura no cache atualizado.
+     */
+    pinCacheFor(ms) {
+        try {
+            const dataDir = path.dirname(this.cachePinFile);
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+            const obj = { pinUntil: Date.now() + Math.max(0, Number(ms) || 0) };
+            fs.writeFileSync(this.cachePinFile, JSON.stringify(obj));
+            console.log('📌 [PRODUCTION DEBUG] Cache pinned until:', new Date(obj.pinUntil).toISOString());
+        } catch (error) {
+            console.warn('⚠️ [PRODUCTION DEBUG] Falha ao pinar cache:', error?.message);
         }
     }
 
@@ -116,19 +252,32 @@ class GoogleDriveService {
             console.log('📥 [PRODUCTION DEBUG] Tentando baixar planilha do Google Drive...');
             console.log('📥 [PRODUCTION DEBUG] File ID:', this.fileId);
             
-            const downloadUrl = this.getDirectDownloadUrl();
-            console.log('📥 [PRODUCTION DEBUG] Download URL:', downloadUrl);
-            
-            const response = await axios({
-                method: 'GET',
-                url: downloadUrl,
-                responseType: 'arraybuffer',
-                timeout: 30000, // 30 segundos
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                maxRedirects: 5
-            });
+            const urls = this.getCandidateDownloadUrls();
+            let response;
+            let lastError;
+            for (const downloadUrl of urls) {
+                try {
+                    console.log('📥 [PRODUCTION DEBUG] Tentando URL:', downloadUrl);
+                    response = await axios({
+                        method: 'GET',
+                        url: downloadUrl,
+                        responseType: 'arraybuffer',
+                        timeout: 30000, // 30 segundos
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        },
+                        maxRedirects: 5
+                    });
+                    // sucesso, quebra loop
+                    break;
+                } catch (err) {
+                    lastError = err;
+                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao baixar por', downloadUrl, '-', err?.message);
+                }
+            }
+            if (!response) {
+                throw lastError || new Error('Falha ao baixar a planilha por todas URLs candidatas');
+            }
 
             console.log('📥 [PRODUCTION DEBUG] Response status:', response.status);
             console.log('📥 [PRODUCTION DEBUG] Response headers:', response.headers['content-type']);
@@ -272,13 +421,13 @@ class GoogleDriveService {
 
             let data = [];
             if (selectedCountry) {
-                const target = this.getSheetNameForCountry(selectedCountry);
-                console.log('📖 [PRODUCTION DEBUG] Usando sheet por país:', target);
+                const target = this.findSheetTitleForCountry(sheetNames, selectedCountry) || this.getSheetNameForCountry(selectedCountry);
+                console.log('📖 [PRODUCTION DEBUG] Usando sheet por país (resolvida):', target);
                 const ws = workbook.Sheets[target];
-                data = XLSX.utils.sheet_to_json(ws);
+                data = ws ? XLSX.utils.sheet_to_json(ws) : [];
             } else {
                 // Sem país selecionado: concatenar abas preferidas se existirem, senão usar a primeira
-                const preferred = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO', 'Wholesale CHINA'].filter(n => sheetNames.includes(n));
+                const preferred = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'].filter(n => sheetNames.includes(n));
                 if (preferred.length > 0) {
                     for (const name of preferred) {
                         const ws = workbook.Sheets[name];
@@ -311,34 +460,83 @@ class GoogleDriveService {
      */
     async saveSpreadsheetData(data, selectedCountry) {
         try {
-            console.log('💾 Salvando dados na planilha local (cache)...');
+            const sheetsClient = await this.getSheetsClient();
 
-            let workbook;
-            if (fs.existsSync(this.localCachePath)) {
+            // Prepara headers e linhas
+            const arr = Array.isArray(data) ? data : [];
+            // Usar a união de chaves de todas as linhas para garantir inclusão de novos campos (ex.: Updated_*)
+            let headers;
+            if (arr.length > 0) {
+                const set = new Set();
+                for (const row of arr) {
+                    Object.keys(row || {}).forEach(k => set.add(k));
+                }
+                headers = Array.from(set);
+            } else {
+                headers = this.inferHeadersFromWorksheet({});
+            }
+            const values = [headers, ...arr.map(row => headers.map(h => row[h] ?? ''))];
+
+            // Determina a aba alvo
+            let targetSheet = this.getSheetNameForCountry(selectedCountry);
+            if (sheetsClient) {
+                const byGid = await this.resolveSheetTitleByGidIfProvided(sheetsClient);
+                if (byGid) targetSheet = byGid;
+            }
+
+            if (sheetsClient) {
+                console.log(`💾 Escrevendo na Google Sheets (aba: ${targetSheet})...`);
+                // Limpa aba e escreve valores a partir de A1
                 try {
+                    await sheetsClient.spreadsheets.values.clear({
+                        spreadsheetId: this.fileId,
+                        range: `${targetSheet}`,
+                    });
+                } catch (_) {}
+
+                await sheetsClient.spreadsheets.values.update({
+                    spreadsheetId: this.fileId,
+                    range: `${targetSheet}!A1`,
+                    valueInputOption: 'RAW',
+                    requestBody: { values }
+                });
+                console.log('✅ Dados salvos na Google Sheets com sucesso');
+            } else {
+                console.log('⚠️ Credenciais da Google API não configuradas; salvando apenas no cache local');
+            }
+
+            // Atualiza cache local para manter consistência
+            let workbook;
+            try {
+                if (fs.existsSync(this.localCachePath)) {
                     workbook = XLSX.readFile(this.localCachePath);
-                } catch (_) {
+                } else {
                     workbook = XLSX.utils.book_new();
                 }
-            } else {
+            } catch (_) {
                 workbook = XLSX.utils.book_new();
             }
-
-            const sheetName = this.getSheetNameForCountry(selectedCountry);
-            const worksheet = XLSX.utils.json_to_sheet(data || []);
-
-            // Remover sheet existente com mesmo nome, se houver
-            if (workbook.SheetNames?.includes(sheetName)) {
-                delete workbook.Sheets[sheetName];
-                workbook.SheetNames = workbook.SheetNames.filter(n => n !== sheetName);
+            const worksheet = XLSX.utils.aoa_to_sheet(values);
+            if (workbook.SheetNames?.includes(targetSheet)) {
+                delete workbook.Sheets[targetSheet];
+                workbook.SheetNames = workbook.SheetNames.filter(n => n !== targetSheet);
             }
-            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-
-            // Salvar localmente
+            XLSX.utils.book_append_sheet(workbook, worksheet, targetSheet);
             XLSX.writeFile(workbook, this.localCachePath);
-            
-            console.log('✅ Dados salvos na planilha local (aba:', sheetName, ')');
-            console.log('⚠️ Nota: Para sincronizar com Google Drive, seria necessário implementar upload via API');
+            console.log('💾 Cache local atualizado (aba:', targetSheet, ')');
+
+            // Fixar cache por um período para evitar re-download que sobrescreva alterações locais
+            try {
+                const pin = { pinUntil: Date.now() + (15 * 60 * 1000) }; // 15 minutos
+                fs.writeFileSync(this.cachePinFile, JSON.stringify(pin));
+                console.log('📌 Cache fixado após gravação por 15 minutos');
+            } catch (e) {
+                console.warn('⚠️ Falha ao fixar cache após gravação:', e?.message);
+            }
+            if (!sheetsClient) {
+                // Sem credenciais para escrever no Drive: manter leitura no cache atualizado
+                this.pinCacheFor(24 * 60 * 60 * 1000);
+            }
             
         } catch (error) {
             console.error('Erro ao salvar dados:', error);

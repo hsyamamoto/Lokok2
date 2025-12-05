@@ -103,23 +103,38 @@ jobs:
       - name: Deploy (project targeted, no link)
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_SERVICE_NAME: ${{ secrets.RAILWAY_SERVICE_NAME }}
         run: |
           set -e
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "ERROR: Missing RAILWAY_TOKEN in environment. Configure RAILWAY_TOKEN or RAILWAY_API_TOKEN secret." >&2
             exit 1
           fi
-          if [ "$RAILWAY_TOKEN_SOURCE" = "project" ]; then
-            echo "Using project token; running 'railway up --detach' without --project"
-            railway up --detach
+          # Selecionar serviço quando houver múltiplos
+          if [ -n "$RAILWAY_SERVICE_ID" ]; then
+            SERVICE_FLAG=(--service "$RAILWAY_SERVICE_ID")
+            echo "Selecionando serviço por ID: $RAILWAY_SERVICE_ID"
+          elif [ -n "$RAILWAY_SERVICE_NAME" ]; then
+            SERVICE_FLAG=(--service "$RAILWAY_SERVICE_NAME")
+            echo "Selecionando serviço por nome: $RAILWAY_SERVICE_NAME"
           else
-            echo "Using account token; attempting 'railway up --detach'"
+            echo "ERROR: Múltiplos serviços encontrados. Defina um secret 'RAILWAY_SERVICE_ID' ou 'RAILWAY_SERVICE_NAME' no repositório para selecionar o serviço." >&2
+            echo "Dica: no Railway, abra o projeto, clique no serviço e copie o ID ou o nome." >&2
+            exit 1
+          fi
+
+          if [ "$RAILWAY_TOKEN_SOURCE" = "project" ]; then
+            echo "Usando token de projeto; executando 'railway up --detach --service <...>'"
+            railway up --detach "${SERVICE_FLAG[@]}"
+          else
+            echo "Usando token de conta; tentando 'railway up --detach --service <...>'"
             set +e
-            railway up --detach
+            railway up --detach "${SERVICE_FLAG[@]}"
             UP_EXIT=$?
             set -e
             if [ $UP_EXIT -ne 0 ]; then
-              echo "Deploy failed with account token. Recommend using a Project Token (RAILWAY_TOKEN)." >&2
+              echo "Deploy falhou com token de conta. Recomende usar Token de Projeto (RAILWAY_TOKEN)." >&2
               exit $UP_EXIT
             fi
           fi

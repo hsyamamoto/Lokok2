@@ -51,6 +51,7 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
           set -e
+          echo "Token present: $([ -n \"$RAILWAY_TOKEN\" ] && echo yes || echo no)"
           railway whoami
           if [ -z "$RAILWAY_PROJECT_ID" ]; then
             echo "ERROR: RAILWAY_PROJECT_ID secret is required for v2 workflow." >&2
@@ -74,13 +75,11 @@ jobs:
       - name: Deploy (project targeted, no link)
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
-          # Ensure token is present for CLI context
-          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
-            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "ERROR: Missing RAILWAY_TOKEN in environment. Configure RAILWAY_TOKEN or RAILWAY_API_TOKEN secret." >&2
+            exit 1
           fi
           railway up --detach --project "$RAILWAY_PROJECT_ID"
           echo "Deploy completed (fingerprint: v2-2025-12-05)."

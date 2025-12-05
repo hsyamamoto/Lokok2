@@ -35,9 +35,14 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
+          TOKEN_SOURCE=""
           TOKEN="$RAILWAY_TOKEN"
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            TOKEN_SOURCE="project"
+          fi
           if [ -z "$TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             TOKEN="$RAILWAY_API_TOKEN"
+            TOKEN_SOURCE="account"
           fi
           if [ -z "$TOKEN" ]; then
             echo "ERROR: Provide RAILWAY_TOKEN or RAILWAY_API_TOKEN as a secret." >&2
@@ -45,6 +50,7 @@ jobs:
           fi
           echo "Setting token env for Railway CLI (fingerprint: v2-2025-12-05)"
           echo "RAILWAY_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "RAILWAY_TOKEN_SOURCE=$TOKEN_SOURCE" >> $GITHUB_ENV
 
       - name: Diagnostics (whoami, status)
         env:
@@ -52,12 +58,34 @@ jobs:
         run: |
           set -e
           echo "Token present: $([ -n \"$RAILWAY_TOKEN\" ] && echo yes || echo no)"
-          railway whoami
+          if [ "$RAILWAY_TOKEN_SOURCE" = "account" ]; then
+            echo "Attempting whoami with account token"
+            set +e
+            railway whoami
+            WHOAMI_EXIT=$?
+            set -e
+            if [ $WHOAMI_EXIT -ne 0 ]; then
+              echo "Skipping whoami: not permitted or unauthorized with current account token type"
+            fi
+          else
+            echo "Skipping whoami: project tokens do not support whoami"
+          fi
           if [ -z "$RAILWAY_PROJECT_ID" ]; then
             echo "ERROR: RAILWAY_PROJECT_ID secret is required for v2 workflow." >&2
             exit 1
           fi
-          railway status --project "$RAILWAY_PROJECT_ID"
+          if [ "$RAILWAY_TOKEN_SOURCE" = "account" ]; then
+            echo "Checking project status with account token"
+            set +e
+            railway status --project "$RAILWAY_PROJECT_ID"
+            STATUS_EXIT=$?
+            set -e
+            if [ $STATUS_EXIT -ne 0 ]; then
+              echo "Skipping status: unauthorized with current token type; continuing to deploy"
+            fi
+          else
+            echo "Skipping status: project tokens may not permit status; continuing"
+          fi
 
       - name: Optional Excel download
         env:

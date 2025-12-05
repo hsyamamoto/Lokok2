@@ -108,6 +108,28 @@ jobs:
       - name: Install Railway CLI
         run: npm i -g @railway/cli
 
+      - name: Authenticate Railway CLI with token
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          set -e
+          # Prefer project token; fallback to API token
+          TOKEN="$RAILWAY_TOKEN"
+          if [ -z "$TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            TOKEN="$RAILWAY_API_TOKEN"
+          fi
+          if [ -n "$TOKEN" ]; then
+            echo "Authenticating Railway CLI with token"
+            railway login --token "$TOKEN" || {
+              echo "ERROR: Falha ao autenticar com o token fornecido. Verifique se o token é válido e possui acesso ao projeto." >&2
+              exit 1
+            }
+          else
+            echo "ERROR: Nenhum token Railway fornecido." >&2
+            exit 1
+          fi
+
       - name: Ensure explicit project targeting when using API token
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -140,44 +162,44 @@ jobs:
           fi
           railway --version
           echo "Token present: $([ -n "$RAILWAY_TOKEN" ] && echo yes || echo no)"
-          # Try to link if project id is provided (safe even when project token is used)
+          # Validate authentication and project accessibility without interactive link
+          railway whoami || {
+            echo "ERROR: Não autenticado; verifique o token (RAILWAY_TOKEN/RAILWAY_API_TOKEN)." >&2
+            exit 1
+          }
           if [ -n "$RAILWAY_PROJECT_ID" ]; then
-            echo "Attempting link to project $RAILWAY_PROJECT_ID (best-effort)"
-            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID" || true
+            railway status --project "$RAILWAY_PROJECT_ID" || {
+              echo "ERROR: Projeto inacessível com o token atual. Confirme RAILWAY_PROJECT_ID e permissões do token." >&2
+              exit 1
+            }
+          else
+            echo "AVISO: RAILWAY_PROJECT_ID não definido; usando contexto padrão do CLI."
+            railway status || true
           fi
-          railway whoami || true
-          railway status || true
 
-      - name: Link Railway project context (when using API token)
+      - name: Verify Railway project context
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
-          # Ensure Railway CLI is available
-          if ! command -v railway >/dev/null 2>&1; then
-            echo "Railway CLI missing; installing..."
-            npm i -g @railway/cli
-          fi
-          # Fallback: map API token to project token var for CLI compatibility
-          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
-            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
-            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
-          fi
+          # Ensure CLI available
+          command -v railway >/dev/null 2>&1 || npm i -g @railway/cli
           railway --version
-          if [ -n "$RAILWAY_API_TOKEN" ]; then
-            if [ -n "$RAILWAY_PROJECT_ID" ]; then
-              echo "Linking to project $RAILWAY_PROJECT_ID"
-              railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
-            else
-              echo "ERROR: RAILWAY_API_TOKEN fornecido sem RAILWAY_PROJECT_ID. Defina RAILWAY_PROJECT_ID para direcionar o deploy ao projeto correto." >&2
+          # Check whoami
+          railway whoami || {
+            echo "ERROR: Não autenticado; verifique o token." >&2
+            exit 1
+          }
+          # If project id provided, verify project is accessible
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            echo "Checking project context via status --project"
+            railway status --project "$RAILWAY_PROJECT_ID" || {
+              echo "ERROR: Projeto inacessível com o token atual. Confirme RAILWAY_PROJECT_ID e permissões do token." >&2
               exit 1
-            fi
-          else
-            echo "Project token detectado (RAILWAY_TOKEN); skip do link explícito."
+            }
           fi
-          railway status || true
 
       - name: Assert target project/domain before deploy
         env:
@@ -189,7 +211,7 @@ jobs:
             npm i -g @railway/cli
           fi
           echo "Verifying target domain new-lokok-production..."
-          if ! railway domain list 2>/dev/null | grep -qi 'new-lokok-production'; then
+          if ! railway domain list --project "$RAILWAY_PROJECT_ID" 2>/dev/null | grep -qi 'new-lokok-production'; then
             echo "ERROR: Domínio new-lokok-production não encontrado no projeto corrente." >&2
             echo "Dicas:"
             echo "- Garanta que RAILWAY_PROJECT_ID aponte para o projeto new-lokok-production."
@@ -235,62 +257,62 @@ jobs:
           # Authenticate is implicit via token env var
           # Configure database usage automatically when DATABASE_URL is provided
           if [ -n "$DATABASE_URL" ]; then
-            railway variables USE_DB=true
-            railway variables DATABASE_URL="$DATABASE_URL"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" USE_DB=true
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" DATABASE_URL="$DATABASE_URL"
             echo "USE_DB=true (DATABASE_URL secret detected)"
           else
-            railway variables USE_DB=false
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" USE_DB=false
             echo "USE_DB=false (no DATABASE_URL secret)"
           fi
-          railway variables NODE_ENV=production
+          railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" NODE_ENV=production
           # Default to local Excel; will switch to Drive automatically if Drive secret is present
           if [ -n "$FORCE_LOCAL_EXCEL_INPUT" ]; then
-            railway variables FORCE_LOCAL_EXCEL="$FORCE_LOCAL_EXCEL_INPUT"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" FORCE_LOCAL_EXCEL="$FORCE_LOCAL_EXCEL_INPUT"
             echo "FORCE_LOCAL_EXCEL set from workflow input"
           else
             echo "FORCE_LOCAL_EXCEL input empty; leaving existing variable unchanged for now"
           fi
           if [ -n "$EXCEL_PATH_INPUT" ]; then
-            railway variables EXCEL_PATH="$EXCEL_PATH_INPUT"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" EXCEL_PATH="$EXCEL_PATH_INPUT"
             echo "Using EXCEL_PATH from workflow input"
           else
             echo "EXCEL_PATH input empty; leaving existing variable unchanged"
           fi
           if [ -n "$SESSION_SECRET" ]; then
-            railway variables SESSION_SECRET="$SESSION_SECRET"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" SESSION_SECRET="$SESSION_SECRET"
           else
             echo "SESSION_SECRET not set; using default in code. Consider adding it as a secret." >&2
           fi
           # Google Drive credentials (optional)
           if [ -n "$GOOGLE_DRIVE_FILE_ID" ]; then
-            railway variables GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" GOOGLE_DRIVE_FILE_ID="$GOOGLE_DRIVE_FILE_ID"
             echo "GOOGLE_DRIVE_FILE_ID detected; Drive enabled"
             # Auto-toggle: prefer Drive source when Drive file is configured
-            railway variables FORCE_LOCAL_EXCEL=0
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" FORCE_LOCAL_EXCEL=0
             echo "FORCE_LOCAL_EXCEL=0 (auto) due to Drive secret present"
           else
-            railway variables GOOGLE_DRIVE_FILE_ID=
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" GOOGLE_DRIVE_FILE_ID=
             echo "GOOGLE_DRIVE_FILE_ID not set; staying on local/public Excel path." >&2
             # If no explicit input provided, ensure local Excel mode
             if [ -z "$FORCE_LOCAL_EXCEL_INPUT" ]; then
-              railway variables FORCE_LOCAL_EXCEL=1
+              railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" FORCE_LOCAL_EXCEL=1
               echo "FORCE_LOCAL_EXCEL=1 (auto) because Drive secret is absent"
             fi
           fi
           if [ -n "$GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
-            railway variables GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" GOOGLE_SERVICE_ACCOUNT_EMAIL="$GOOGLE_SERVICE_ACCOUNT_EMAIL"
           fi
           if [ -n "$GOOGLE_PRIVATE_KEY" ]; then
-            railway variables GOOGLE_PRIVATE_KEY="$GOOGLE_PRIVATE_KEY"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" GOOGLE_PRIVATE_KEY="$GOOGLE_PRIVATE_KEY"
           fi
 
           # Service account is optional when file is public; if provided, it enables private files
 
           # Country list (fallback to default if secret missing)
           if [ -n "$DEFAULT_ADMIN_ALLOWED_COUNTRIES" ]; then
-            railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" DEFAULT_ADMIN_ALLOWED_COUNTRIES="$DEFAULT_ADMIN_ALLOWED_COUNTRIES"
           else
-            railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
+            railway variables --project "${{ secrets.RAILWAY_PROJECT_ID }}" DEFAULT_ADMIN_ALLOWED_COUNTRIES="US,CA,MX"
           fi
 
       - name: Summary (effective toggles)
@@ -323,11 +345,11 @@ jobs:
           echo "Whoami:"
           railway whoami || true
           echo "Project info:"
-          railway project || true
+          railway project --project "$RAILWAY_PROJECT_ID" || true
           echo "Domains:"
-          railway domain list || true
+          railway domain list --project "$RAILWAY_PROJECT_ID" || true
           echo "Check for new-lokok-production domain:"
-          railway domain list 2>/dev/null | grep -i 'new-lokok-production' && echo "Detected new-lokok-production domain" || echo "new-lokok-production domain not detected in current project"
+          railway domain list --project "$RAILWAY_PROJECT_ID" 2>/dev/null | grep -i 'new-lokok-production' && echo "Detected new-lokok-production domain" || echo "new-lokok-production domain not detected in current project"
           echo "- EXCEL_PATH input: ${{ github.event.inputs.EXCEL_PATH }}"
 
       - name: Download Excel file for exact local parity (optional)
@@ -361,23 +383,18 @@ jobs:
             export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
-          # Best-effort link when project id is available
-          if [ -n "$RAILWAY_PROJECT_ID" ]; then
-            railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID" || true
-          fi
           railway whoami || true
-          railway status || true
+          railway status --project "$RAILWAY_PROJECT_ID" || true
           if [ -n "$RAILWAY_TOKEN" ]; then
             echo "Using project token (RAILWAY_TOKEN)"
-            railway up --detach
+            railway up --detach --project "$RAILWAY_PROJECT_ID"
           elif [ -n "$RAILWAY_API_TOKEN" ]; then
             echo "Using account/team token (RAILWAY_API_TOKEN)"
-            # Ensure project is linked when using account/team token
-            if ! railway status >/dev/null 2>&1; then
-              echo "ERROR: Railway CLI does not have project context. Set secret RAILWAY_PROJECT_ID and ensure link step runs." >&2
+            if [ -z "$RAILWAY_PROJECT_ID" ]; then
+              echo "ERROR: Defina RAILWAY_PROJECT_ID para direcionar o deploy ao projeto correto com token de conta/time." >&2
               exit 1
             fi
-            railway up --detach
+            railway up --detach --project "$RAILWAY_PROJECT_ID"
           else
             echo "ERROR: Provide either RAILWAY_TOKEN (project token) or RAILWAY_API_TOKEN (account/team token) as a GitHub secret." >&2
             exit 1

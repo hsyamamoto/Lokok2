@@ -1246,6 +1246,42 @@ app.get('/api/debug-counts', requireAuth, async (req, res) => {
     }
 });
 
+// Contagem por país no banco (suppliers_json)
+app.get('/api/db-counts', requireAuth, async (req, res) => {
+    if (!process.env.DATABASE_URL) {
+        return res.status(400).json({ success: false, message: 'DATABASE_URL não configurado. Ative USE_DB/DATABASE_URL para consultar o banco.' });
+    }
+    const client = await pool.connect();
+    try {
+        const sql = `
+            SELECT
+              CASE
+                WHEN LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) IN ('us','usa','united states','united states of america') THEN 'US'
+                WHEN LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) IN ('ca','canada') THEN 'CA'
+                WHEN LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) IN ('mx','mexico','méxico') THEN 'MX'
+                WHEN LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) IN ('cn','china') THEN 'CN'
+                ELSE 'UNK'
+              END AS country_code,
+              COUNT(*)::int AS count
+            FROM suppliers_json
+            GROUP BY country_code
+            ORDER BY country_code;
+        `;
+        const { rows } = await client.query(sql);
+        const total = rows.reduce((sum, r) => sum + (r.count || 0), 0);
+        const byCountry = {};
+        for (const r of rows) {
+            byCountry[r.country_code] = r.count;
+        }
+        res.json({ success: true, total, byCountry });
+    } catch (e) {
+        console.error('[DB-COUNTS] Falha ao consultar contagem por país:', e);
+        res.status(500).json({ success: false, error: e?.message || String(e) });
+    } finally {
+        client.release();
+    }
+});
+
 // Health-check simples (sem autenticação) para validar servidor/porta
 app.get('/healthz', (req, res) => {
     try {

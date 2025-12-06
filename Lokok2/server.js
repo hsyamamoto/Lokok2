@@ -234,6 +234,55 @@ function requireManagerOrAdmin(req, res, next) {
     }
 }
 
+// Contagem no banco por país (produção)
+// Normaliza países para US, CA, MX, CN; demais vão para UNK
+app.get('/api/db-counts', requireAuth, async (req, res) => {
+    try {
+        const client = await pool.connect();
+        let rows;
+        try {
+            const result = await client.query(
+                `SELECT LOWER(TRIM(COALESCE(country, ''))) AS country, COUNT(*)::int AS count
+                 FROM suppliers
+                 GROUP BY LOWER(TRIM(COALESCE(country, '')))`
+            );
+            rows = result.rows || [];
+        } finally {
+            client.release();
+        }
+
+        const byCountry = { US: 0, CA: 0, MX: 0, CN: 0, UNK: 0 };
+
+        const isUS = (c) => ['us', 'usa', 'u.s.', 'united states', 'unitedstates', 'eua'].includes(c);
+        const isCA = (c) => ['ca', 'canada'].includes(c);
+        const isMX = (c) => ['mx', 'mexico', 'méxico'].includes(c);
+        const isCN = (c) => ['cn', 'china'].includes(c);
+
+        for (const r of rows) {
+            const c = (r.country || '').toLowerCase();
+            const count = r.count || 0;
+            if (!c || c === '') {
+                byCountry.UNK += count;
+            } else if (isUS(c)) {
+                byCountry.US += count;
+            } else if (isCA(c)) {
+                byCountry.CA += count;
+            } else if (isMX(c)) {
+                byCountry.MX += count;
+            } else if (isCN(c)) {
+                byCountry.CN += count;
+            } else {
+                byCountry.UNK += count;
+            }
+        }
+
+        const total = Object.values(byCountry).reduce((a, b) => a + b, 0);
+        res.json({ total, byCountry });
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
 <<<<<<< HEAD
 // Helpers de armazenamento local de distribuidores (pendências, aprovações, tarefas de operador)
 const SUPPLIERS_STORE_PATH = path.join(__dirname, 'data', 'suppliers.json');

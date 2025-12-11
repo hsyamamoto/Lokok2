@@ -55,7 +55,7 @@
                         <%= user.role %>
                     </span>
                     <div class="flex items-center space-x-2">
-                        <span class="text-xs text-blue-700">Country:</span>
+                        <span class="text-xs text-blue-700">countries:</span>
                         <select class="text-sm px-2 py-1 rounded border border-blue-200 bg-white text-blue-800"
                                 onchange="window.location.href='/switch-country?country=' + this.value">
                             <%
@@ -147,7 +147,7 @@
                 Available Actions
             </h3>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <% if (['admin','operador','gerente','manager'].includes(user.role)) { %>
+                <% if (['admin','gerente','manager'].includes(user.role)) { %>
                 <a href="/form" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-sky-300 to-sky-400 text-sky-800 text-sm font-medium rounded-lg hover:from-sky-400 hover:to-sky-500 transition-all duration-200 shadow-md hover:shadow-lg">
                     <i class="fas fa-plus mr-2"></i>
                     Add Supplier
@@ -159,10 +159,12 @@
                     Bulk Upload
                 </a>
                 <% } %>
+                <% if (!(user.role === 'operador' || user.role === 'operator')) { %>
                 <a href="/search" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-emerald-300 to-emerald-400 text-emerald-800 text-sm font-medium rounded-lg hover:from-emerald-400 hover:to-emerald-500 transition-all duration-200 shadow-md hover:shadow-lg">
                     <i class="fas fa-search mr-2"></i>
                     Search Suppliers
                 </a>
+                <% } %>
                 <% if (user.role === 'admin') { %>
                 <a href="/logs" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-red-300 to-red-400 text-red-800 text-sm font-medium rounded-lg hover:from-red-400 hover:to-red-500 transition-all duration-200 shadow-md hover:shadow-lg">
                     <i class="fas fa-clipboard-list mr-2"></i>
@@ -177,6 +179,7 @@
         </div>
 
         <!-- Statistics Grid -->
+        <% if (!(user.role === 'operador' || user.role === 'operator')) { %>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <!-- Categories Stats -->
             <div class="bg-white rounded-xl shadow-lg p-6">
@@ -212,6 +215,7 @@
                 </div>
             </div>
         </div>
+        <% } %>
 
         <% if (user.role === 'admin') { %>
         <!-- Pending Approvals (Admin) -->

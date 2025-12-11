@@ -17,6 +17,14 @@ const app = express();
 try { fs.mkdirSync('./logs', { recursive: true }); } catch {}
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const REQUIRE_DB = (process.env.REQUIRE_DB === '1' || String(process.env.REQUIRE_DB || '').toLowerCase() === 'true');
+
+function isDbEnabledForWrites() {
+    const isProd = NODE_ENV === 'production';
+    const forceLocal = !isProd && process.env.FORCE_LOCAL_EXCEL === '1';
+    const dbConfigured = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
+    return dbConfigured && (!forceLocal || isProd);
+}
 
 // Configuração do middleware
 app.use(express.json());
@@ -76,7 +84,88 @@ app.use(express.static('public'));
 
 // Rota de healthcheck para Railway
 app.get('/health', (req, res) => {
-    res.status(200).send('OK');
+    try {
+        res.set('X-Server-File', __filename);
+        res.set('X-Server-Dir', __dirname);
+    } catch {}
+    res.status(200).send(`OK - ${__filename}`);
+});
+
+// Health info detalhado para identificar servidor ativo em produção
+app.get('/healthz', (req, res) => {
+    res.json({
+        status: 'OK',
+        serverFile: __filename,
+        serverDir: __dirname,
+        viewsDir: app.get('views')
+    });
+});
+
+// Debug: listar rotas registradas no servidor atual
+app.get('/debug/routes', (req, res) => {
+    try {
+        const routes = [];
+        const stack = app._router && app._router.stack ? app._router.stack : [];
+        for (const layer of stack) {
+            if (layer.route && layer.route.path) {
+                const methods = Object.keys(layer.route.methods || {}).filter(Boolean);
+                routes.push({ path: layer.route.path, methods });
+            }
+        }
+        res.json({
+            serverFile: __filename,
+            serverDir: __dirname,
+            routes
+        });
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Versão e diagnóstico rápido de build/paths
+const BUILD_TIME = new Date().toISOString();
+app.get('/version', (req, res) => {
+    let version = 'unknown';
+    try {
+        const pkg = require(path.join(__dirname, 'package.json'));
+        version = pkg.version || version;
+    } catch (e) {}
+    res.json({
+        version,
+        buildTime: BUILD_TIME,
+        nodeEnv: process.env.NODE_ENV || 'development',
+        serverDir: __dirname,
+        viewsDir: app.get('views')
+    });
+});
+
+// Rota rápida para identificar o arquivo do servidor em execução
+app.get('/__whoami', (req, res) => {
+    res.status(200).send(__filename);
+});
+
+// Diagnóstico de runtime (para identificar qual servidor está rodando em produção)
+app.get('/runtime', (req, res) => {
+    try {
+        res.json({
+            pid: process.pid,
+            nodeVersion: process.version,
+            platform: process.platform,
+            cwd: process.cwd(),
+            serverFile: __filename,
+            serverDir: __dirname,
+            viewsDir: app.get('views'),
+            env: {
+                NODE_ENV: process.env.NODE_ENV || null,
+                PORT: process.env.PORT || null,
+                RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT || null,
+                RAILWAY_SERVICE_NAME: process.env.RAILWAY_SERVICE_NAME || null,
+                RAILWAY_PROJECT_ID: process.env.RAILWAY_PROJECT_ID || null,
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
 });
 
 // Rota de debug para inspecionar qual Excel está sendo usado e contagem por aba
@@ -163,6 +252,126 @@ app.get('/diagnose/drive', async (req, res) => {
         res.json({ source, sheetNames, count, firstRow, info });
     } catch (e) {
         res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Endpoint administrativo seguro para migração CA→Marcelo diretamente pelo HTTP
+// Uso:
+// - Dry-run:  GET /admin/migrate/assign-marcelo-ca?token=YOUR_TOKEN
+// - Aplicar:  GET /admin/migrate/assign-marcelo-ca?token=YOUR_TOKEN&apply=1
+// Observações:
+// - Protegido por token em ENV: ADMIN_MIGRATE_TOKEN
+// - Requer acesso ao Postgres (DATABASE_URL válido no ambiente)
+// - Atualiza registros country=CA em suppliers_json
+app.get('/admin/migrate/assign-marcelo-ca', async (req, res) => {
+    try {
+        const token = req.query.token || req.headers['x-admin-token'];
+        const expected = process.env.ADMIN_MIGRATE_TOKEN;
+        if (!expected) {
+            return res.status(400).json({ error: 'ADMIN_MIGRATE_TOKEN não configurado no ambiente.' });
+        }
+        if (!token || token !== expected) {
+            return res.status(401).json({ error: 'Token inválido ou ausente.' });
+        }
+
+        if (!isDbEnabledForWrites()) {
+            return res.status(400).json({ error: 'Banco de dados não está habilitado para escrita neste ambiente.' });
+        }
+
+        const apply = req.query.apply === '1' || req.query.apply === 'true';
+
+        // Obter usuário Marcelo
+        const { rows: userRows } = await pool.query(
+            `SELECT id, username FROM users WHERE lower(username) = 'marcelo' ORDER BY id LIMIT 1`
+        );
+        if (!userRows || userRows.length === 0) {
+            return res.status(404).json({ error: 'Usuário "marcelo" não encontrado na tabela users.' });
+        }
+        const marceloId = userRows[0].id;
+        const marceloName = 'Marcelo';
+
+        // Dry-run: contar registros de CA e estimar atualizações
+        const { rows: countRows } = await pool.query(
+            `SELECT COUNT(*)::int AS total_ca,
+                    SUM(CASE WHEN COALESCE(created_by_user_id, 0) = $1 THEN 1 ELSE 0 END)::int AS ca_com_marcelo
+             FROM suppliers_json
+             WHERE country = 'CA'`,
+            [marceloId]
+        );
+        const info = countRows?.[0] || { total_ca: 0, ca_com_marcelo: 0 };
+
+        if (!apply) {
+            return res.json({
+                mode: 'dry-run',
+                summary: 'Registros CA e quantos já estão com Marcelo.',
+                total_ca: info.total_ca,
+                ca_com_marcelo: info.ca_com_marcelo,
+                would_update: Math.max(0, info.total_ca - info.ca_com_marcelo)
+            });
+        }
+
+        // Aplicar migração: atualizar created_by_* e JSON (Responsable, Created_By_*, Country)
+        const updateSql = `
+            WITH marcelo AS (
+                SELECT $1::bigint AS id, $2::text AS name
+            )
+            UPDATE suppliers_json AS s
+            SET
+              created_by_user_id   = m.id,
+              created_by_user_name = m.name,
+              data = jsonb_set(
+                       jsonb_set(
+                         jsonb_set(
+                           jsonb_set(
+                             s.data,
+                             '{Responsable}',
+                             to_jsonb(
+                               CASE
+                                 WHEN position('marcelo' in lower(coalesce(s.data->>'Responsable',''))) > 0
+                                   THEN s.data->>'Responsable'
+                                 ELSE trim(both ' | ' from coalesce(s.data->>'Responsable','') || ' | Marcelo')
+                               END
+                             ),
+                             true
+                           ),
+                           '{Created_By_User_ID}',
+                           to_jsonb(m.id::text),
+                           true
+                         ),
+                         '{Created_By_User_Name}',
+                         to_jsonb(m.name),
+                         true
+                       ),
+                       '{Country}',
+                       to_jsonb('CA'),
+                       true
+                     ),
+              updated_at = CURRENT_TIMESTAMP
+            FROM marcelo AS m
+            WHERE s.country = 'CA';
+        `;
+
+        const result = await pool.query(updateSql, [marceloId, marceloName]);
+
+        // Pós-verificação
+        const { rows: postRows } = await pool.query(
+            `SELECT COUNT(*)::int AS total_ca,
+                    SUM(CASE WHEN COALESCE(created_by_user_id, 0) = $1 THEN 1 ELSE 0 END)::int AS ca_com_marcelo
+             FROM suppliers_json
+             WHERE country = 'CA'`,
+            [marceloId]
+        );
+        const after = postRows?.[0] || { total_ca: 0, ca_com_marcelo: 0 };
+
+        return res.json({
+            mode: 'apply',
+            updated_rows: result.rowCount || 0,
+            total_ca_after: after.total_ca,
+            ca_com_marcelo_after: after.ca_com_marcelo
+        });
+    } catch (e) {
+        console.error('Erro na migração HTTP CA→Marcelo:', e);
+        return res.status(500).json({ error: e?.message || String(e) });
     }
 });
 
@@ -336,10 +545,25 @@ function requireAuth(req, res, next) {
     }
 }
 
+// Helpers para normalizar papeis (PT/EN)
+function normalizeRole(r) {
+    const k = ((r || '') + '').toLowerCase();
+    const map = {
+        'admin': 'admin',
+        'gerente': 'manager',
+        'manager': 'manager',
+        'operador': 'operator',
+        'operator': 'operator'
+    };
+    return map[k] || k;
+}
+
 // Middleware de autorização por role
 function requireRole(roles) {
     return (req, res, next) => {
-        if (req.session.user && roles.includes(req.session.user.role)) {
+        const userRole = normalizeRole(req.session.user && req.session.user.role);
+        const accepted = Array.isArray(roles) ? roles.map(normalizeRole) : [];
+        if (req.session.user && accepted.includes(userRole)) {
             next();
         } else {
             res.status(403).send('Access denied');
@@ -358,9 +582,8 @@ function requireAdmin(req, res, next) {
 
 // Middleware para verificar se é gerente ou admin
 function requireManagerOrAdmin(req, res, next) {
-    // Accept both Portuguese 'gerente' and English 'manager' (case-insensitive)
-    const role = ((req.session.user && req.session.user.role) || '').toLowerCase();
-    if (req.session.user && ['admin', 'gerente', 'manager'].includes(role)) {
+    const role = normalizeRole(req.session.user && req.session.user.role);
+    if (req.session.user && ['admin', 'manager'].includes(role)) {
         next();
     } else {
         res.status(403).send('Access denied');
@@ -368,7 +591,9 @@ function requireManagerOrAdmin(req, res, next) {
 }
 
 // Helpers de armazenamento local de distribuidores (pendências, aprovações, tarefas de operador)
-const SUPPLIERS_STORE_PATH = path.join(__dirname, 'data', 'suppliers.json');
+// Permitir diretório de dados configurável para persistência (ex.: Railway Volume)
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const SUPPLIERS_STORE_PATH = path.join(DATA_DIR, 'suppliers.json');
 function ensureSuppliersStore() {
     try {
         const dir = path.dirname(SUPPLIERS_STORE_PATH);
@@ -885,6 +1110,23 @@ app.get('/session-debug', (req, res) => {
     });
 });
 
+// Debug: país atual na sessão e permissões do usuário
+app.get('/debug/session-country', requireAuth, (req, res) => {
+    try {
+        const user = req.session.user || null;
+        const allowed = normalizeAllowedCountries(user?.allowedCountries || []);
+        const selected = req.session.selectedCountry || (allowed[0] || 'US');
+        res.json({
+            user: user ? { id: user.id, email: user.email, name: user.name, role: user.role } : null,
+            allowedCountries: allowed,
+            selectedCountry: selected,
+            rawSelectedCountry: req.session.selectedCountry || null
+        });
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
 // Rota principal - Dashboard
 app.get('/dashboard', requireAuth, async (req, res) => {
     console.log('[PRODUCTION DEBUG] Acessando dashboard para usuário:', req.session.user?.email);
@@ -1282,22 +1524,55 @@ app.get('/api/db-counts', requireAuth, async (req, res) => {
     }
 });
 
+// Contagem por país a partir do Excel/Google Drive (fallback quando DB não está ativo)
+app.get('/api/excel-counts', requireAuth, async (req, res) => {
+    try {
+        const all = await readExcelData('ALL');
+        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY'] || rec.country) || null;
+        const canonicalCountry = (c) => {
+            const v = String(c || '').trim().toUpperCase();
+            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
+            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
+            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
+            if (['CN','CHINA'].includes(v)) return 'CN';
+            return 'UNK';
+        };
+        const byCountry = {};
+        let total = 0;
+        for (const rec of all) {
+            const code = canonicalCountry(getCountry(rec));
+            byCountry[code] = (byCountry[code] || 0) + 1;
+            total++;
+        }
+        res.json({ success: true, total, byCountry });
+    } catch (e) {
+        console.error('[EXCEL-COUNTS] Falha ao calcular contagem por país:', e);
+        res.status(500).json({ success: false, error: e?.message || String(e) });
+    }
+});
+
 // Health-check simples (sem autenticação) para validar servidor/porta
 app.get('/healthz', (req, res) => {
     try {
-        const info = {
+        res.json({
+            status: 'OK',
             ok: true,
             port: PORT,
             env: NODE_ENV,
+            serverFile: __filename,
+            serverDir: __dirname,
+            viewsDir: app.get('views'),
             timestamp: new Date().toISOString()
-        };
-        res.json(info);
+        });
     } catch (e) {
         res.status(500).json({ ok: false, error: e?.message });
     }
 });
 
 app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => {
+    if (REQUIRE_DB && !isDbEnabledForWrites()) {
+        return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para escrever dados. Configure USE_DB/DATABASE_URL.' });
+    }
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
     const data = await readExcelData(selectedCountry);
     const allData = await readExcelData('ALL');
@@ -1379,7 +1654,7 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
     }
     
     let saved = false;
-    const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof insertJsonSupplier === 'function';
+    const useDb = isDbEnabledForWrites() && typeof insertJsonSupplier === 'function';
     if (useDb) {
         // Persist directly to DB JSONB table
         saved = await insertJsonSupplier(newRecord, selectedCountry, req.session.user);
@@ -1546,7 +1821,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Rota de busca
-app.get('/search', requireAuth, async (req, res) => {
+app.get('/search', requireAuth, requireManagerOrAdmin, async (req, res) => {
     const { query, type } = req.query;
     // Garantir que buscas respeitem o país selecionado na sessão
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
@@ -1613,7 +1888,8 @@ app.get('/search', requireAuth, async (req, res) => {
     // Adicionar índice real (ALL) e índice por país a cada registro
     data = data.map((record, index) => {
         const countryRaw = getField(record, ['Country']);
-        const countryCode = normalizeCountryCode(countryRaw) || 'US';
+        // Fallback para o país atualmente selecionado, evitando default para US quando o campo está vazio/irregular
+        const countryCode = normalizeCountryCode(countryRaw) || selectedCountry;
         const webKey = normalizeKey(getField(record, ['Website']));
         const nameKey = normalizeKey(getField(record, ['Name']));
         const maps = countryIndexMaps[countryCode] || { byWeb: new Map(), byName: new Map() };
@@ -1801,12 +2077,22 @@ app.get('/search', requireAuth, async (req, res) => {
         if (status && status.trim()) {
             const before = resultsAdvanced.length;
             if (status === '__blank__') {
-                resultsAdvanced = resultsAdvanced.filter(record => (((getField(record, [fieldStatusName]) || '') + '').trim().length === 0));
-                console.log('[SEARCH DEBUG] status blank filter applied. before:', before, 'after:', resultsAdvanced.length);
+                // Considerar "em branco" quando NÃO houver valor em nenhum dos campos de status
+                resultsAdvanced = resultsAdvanced.filter(record => {
+                    const sGeneral = (((getField(record, [fieldStatusName]) || '') + '').trim());
+                    const sAccount = (((getField(record, ['Account Request Status','Account Status']) || '') + '').trim());
+                    return sGeneral.length === 0 && sAccount.length === 0;
+                });
+                console.log('[SEARCH DEBUG] status blank filter applied (general + account). before:', before, 'after:', resultsAdvanced.length);
             } else {
                 const term = normalize(status);
-                resultsAdvanced = resultsAdvanced.filter(record => normalize(getField(record, [fieldStatusName])) === term);
-                console.log('[SEARCH DEBUG] status filter term:', term, 'before:', before, 'after:', resultsAdvanced.length);
+                // Aceitar correspondência em STATUS geral OU em Account Status
+                resultsAdvanced = resultsAdvanced.filter(record => {
+                    const sGeneral = normalize(getField(record, [fieldStatusName]));
+                    const sAccount = normalize(getField(record, ['Account Request Status','Account Status']));
+                    return sGeneral === term || sAccount === term;
+                });
+                console.log('[SEARCH DEBUG] status filter term (general or account):', term, 'before:', before, 'after:', resultsAdvanced.length);
             }
         }
     }
@@ -1838,7 +2124,7 @@ app.get('/search', requireAuth, async (req, res) => {
     if (sortBy && ['accountStatus','status','buyer','category'].includes(sortBy)) {
         const fieldMap = {
             accountStatus: ['Account Request Status','Account Status'],
-            status: ['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'],
+            status: ['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)','Account Request Status','Account Status'],
             buyer: ['Responsable','Manager','Buyer'],
             category: ['CATEGORÍA','Category']
         };
@@ -1869,8 +2155,11 @@ app.get('/search', requireAuth, async (req, res) => {
     
     const managersList = collectUniqueValues(data, ['Responsable','Manager','Buyer']);
     const accountStatusList = collectUniqueValues(data, ['Account Request Status','Account Status']);
-    // Lista dinâmica de STATUS geral (coleta todos os valores existentes no dataset)
-    const statusList = collectUniqueValues(data, [fieldStatusName]);
+    // Lista dinâmica de STATUS unificada (Status geral + Account Status)
+    const statusListGeneral = collectUniqueValues(data, [fieldStatusName]);
+    const statusList = Array.from(new Set([...(statusListGeneral || []), ...(accountStatusList || [])]))
+        .filter(v => (v || '').trim().length > 0)
+        .sort((a, b) => a.localeCompare(b));
     
     // Persistir contadores de debug na sessão e adicionar rota /logs que renderiza a nova aba de Logs. Remover envio de debugCounts para a página de busca.
     const debugCounts = {
@@ -1885,6 +2174,7 @@ app.get('/search', requireAuth, async (req, res) => {
         query: query || '', 
         type: type || 'all',
         user: req.session.user,
+        selectedCountry,
         // filtros removidos da UI, permanecem aqui apenas para compatibilidade
         accountStatus,
         buyer,
@@ -1917,21 +2207,23 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
     }
     
     const record = data[recordId];
-    
-    // Verificar permissões: admin pode editar tudo, gerente só pode editar se for responsável
-    if (user.role !== 'admin') {
-        if (user.role !== 'gerente') {
-            return res.status(403).render('error', { 
+
+    // Verificar permissões: admin pode editar tudo; gerente pode editar se for responsável OU se o país selecionado estiver em allowedCountries
+    const roleNorm = normalizeRole(user.role);
+    if (roleNorm !== 'admin') {
+        if (roleNorm !== 'manager') {
+            return res.status(403).render('error', {
                 message: 'Access denied. Only administrators and managers can edit records.',
                 user: user
             });
         }
-        
-        // Verificar se o gerente é responsável pelo registro
         const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
-        if (!responsaveis.includes(user.name)) {
-            return res.status(403).render('error', { 
-                message: 'Access denied. You can only edit distributors you are responsible for.',
+        const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
+        const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
+        const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
+        if (!canEditByResponsable && !isAllowedCountry) {
+            return res.status(403).render('error', {
+                message: 'Access denied. You can only edit distributors you are responsible for or within your allowed countries.',
                 user: user
             });
         }
@@ -1946,6 +2238,9 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
 
 // Rota POST para processar alterações
 app.post('/edit/:id', requireAuth, async (req, res) => {
+    if (REQUIRE_DB && !isDbEnabledForWrites()) {
+        return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para editar dados. Configure USE_DB/DATABASE_URL.' });
+    }
     const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
     const data = await readExcelData(selectedCountry);
     const allData = await readExcelData('ALL');
@@ -1960,16 +2255,16 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     const record = data[recordId];
     
     // Verificar permissões novamente
-    if (user.role !== 'admin') {
-        if (user.role !== 'gerente') {
+    const roleNormPost = normalizeRole(user.role);
+    if (roleNormPost !== 'admin') {
+        if (roleNormPost !== 'manager') {
             return res.status(403).json({ 
                 success: false, 
                 message: 'Access denied. Only administrators and managers can edit records.' 
             });
         }
-        
         const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
-        const allowedCountries = Array.isArray(user.allowedCountries) ? user.allowedCountries.map(c => String(c).toUpperCase()) : [];
+        const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
         const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
         if (!canEditByResponsable && !isAllowedCountry) {
@@ -2080,8 +2375,7 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     }
 
     // Persistir alterações (prioriza DB quando habilitado). Quando DB está ativo, NÃO fazer fallback para Excel
-    const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
-    const canUseDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof updateJsonSupplier === 'function';
+    const canUseDb = isDbEnabledForWrites() && typeof updateJsonSupplier === 'function';
     let saveSuccess = false;
     if (canUseDb) {
         try {
@@ -2118,6 +2412,9 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
 
 // Rota DELETE para remover um registro
 app.delete('/records/:id', requireAuth, async (req, res) => {
+    if (REQUIRE_DB && !isDbEnabledForWrites()) {
+        return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para excluir dados. Configure USE_DB/DATABASE_URL.' });
+    }
     try {
         const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
         const data = await readExcelData(selectedCountry);
@@ -2130,21 +2427,29 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
 
         const record = data[recordId];
 
-        // Permissões: admin pode deletar qualquer registro; gerente só se for responsável
-        if (user.role !== 'admin') {
-            if (user.role !== 'gerente') {
+        // Permissões: admin pode deletar qualquer registro; gerente pode deletar se for responsável, país permitido ou criador do registro
+        const roleNormDel = normalizeRole(user.role);
+        if (roleNormDel !== 'admin') {
+            if (roleNormDel !== 'manager') {
                 return res.status(403).json({ success: false, message: 'Access denied. Only administrators and managers can delete records.' });
             }
-            const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
-            if (!responsaveis.includes(user.name)) {
-                return res.status(403).json({ success: false, message: 'Access denied. You can only delete distributors you are responsible for.' });
+            const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+            const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
+            const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
+            const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
+            const userNameNorm = normalize(user.name);
+            const canDeleteByResponsable = responsaveis.length === 0 || responsaveis.some(r => normalize(r) === userNameNorm);
+            const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+            const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+            const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+            const canDeleteByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+            if (!canDeleteByResponsable && !isAllowedCountry && !canDeleteByCreated) {
+                return res.status(403).json({ success: false, message: 'Access denied. You can only delete distributors you are responsible for or within your allowed countries.' });
             }
         }
 
         // Persistência: prioriza DB quando habilitado; quando DB está ativo, NÃO fazer fallback para Excel
-        const isProd = NODE_ENV === 'production';
-        const forceLocal = !isProd && process.env.FORCE_LOCAL_EXCEL === '1';
-        const canUseDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof require('./database').deleteJsonSupplier === 'function' && (!forceLocal || isProd);
+        const canUseDb = isDbEnabledForWrites() && typeof require('./database').deleteJsonSupplier === 'function';
         let saveSuccess = false;
         if (canUseDb) {
             try {
@@ -2248,6 +2553,9 @@ app.get('/download-template', requireAuth, requireManagerOrAdmin, (req, res) => 
 // Rota para upload em lote de fornecedores (DB-first; fallback para Excel somente quando DB inativo)
 app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('excelFile'), async (req, res) => {
     try {
+        if (REQUIRE_DB && !isDbEnabledForWrites()) {
+            return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para bulk upload. Configure USE_DB/DATABASE_URL.' });
+        }
         const user = req.session.user;
         const file = req.file;
         if (!file) {
@@ -2259,8 +2567,7 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
         const worksheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
-        const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
-        const canUseDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
+        const canUseDb = isDbEnabledForWrites();
 
         if (canUseDb) {
             let inserted = 0, updated = 0, errors = 0;
@@ -2480,8 +2787,8 @@ async function startServer() {
             console.log('Admin: admin@lokok.com / admin123');
             console.log('Gerente: manager@lokok.com / manager123');
             
-            // Verificar se users.json existe
-            const usersPath = path.join(__dirname, 'data', 'users.json');
+            // Verificar se users.json existe (honrando DATA_DIR quando configurado)
+            const usersPath = path.join(DATA_DIR, 'users.json');
             console.log(`📁 [PRODUCTION DEBUG] Verificando users.json em: ${usersPath}`);
             
             try {

@@ -82,8 +82,8 @@ console.log('🔧 [PRODUCTION DEBUG] Configuração de sessão:', {
 // Servir arquivos estáticos
 app.use(express.static('public'));
 
-// Rota de healthcheck para Railway
-app.get('/health', (req, res) => {
+// Healthcheck simples (informativo). O health detalhado está mais abaixo em '/health'.
+app.get('/health-simple', (req, res) => {
     try {
         res.set('X-Server-File', __filename);
         res.set('X-Server-Dir', __dirname);
@@ -91,8 +91,8 @@ app.get('/health', (req, res) => {
     res.status(200).send(`OK - ${__filename}`);
 });
 
-// Health info detalhado para identificar servidor ativo em produção
-app.get('/healthz', (req, res) => {
+// Health info simples (detalhado está mais abaixo em '/healthz')
+app.get('/healthz-simple', (req, res) => {
     res.json({
         status: 'OK',
         serverFile: __filename,
@@ -197,6 +197,39 @@ app.get('/debug/excel', (req, res) => {
         res.json(info);
     } catch (e) {
         res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Diagnóstico de usuários e persistência (admin-only)
+app.get('/debug/users', requireAuth, requireAdmin, (req, res) => {
+    try {
+        const users = userRepository.findAll();
+        const roleCounts = users.reduce((acc, u) => {
+            const r = (u.role || '').toLowerCase();
+            acc[r] = (acc[r] || 0) + 1;
+            return acc;
+        }, {});
+        res.json({
+            status: 'ok',
+            env: {
+                NODE_ENV: process.env.NODE_ENV || null,
+                DATA_DIR: process.env.DATA_DIR || null
+            },
+            usersFilePath: userRepository.usersFilePath,
+            usersCount: users.length,
+            roleCounts,
+            users: users.map(u => ({
+                id: u.id,
+                email: u.email,
+                name: u.name,
+                role: u.role,
+                allowedCountries: u.allowedCountries,
+                isActive: u.isActive
+            }))
+        });
+    } catch (e) {
+        console.error('Erro em GET /debug/users', e);
+        res.status(500).json({ error: 'Erro interno' });
     }
 });
 
@@ -556,6 +589,15 @@ function normalizeRole(r) {
         'operator': 'operator'
     };
     return map[k] || k;
+}
+
+// Helper global para normalizar textos (acentos, caixa e espaços)
+function normalize(s) {
+    return ((s || '') + '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 // Middleware de autorização por role
@@ -1709,6 +1751,36 @@ app.get('/users', requireAuth, requireAdmin, (req, res) => {
     });
 });
 
+// Healthcheck detalhado para diagnóstico em produção
+app.get('/health', (req, res) => {
+    try {
+        const users = userRepository.findAll();
+        const roleCounts = users.reduce((acc, u) => {
+            const r = String(u.role || '').toLowerCase();
+            acc[r] = (acc[r] || 0) + 1;
+            return acc;
+        }, {});
+        res.json({
+            status: 'ok',
+            pid: process.pid,
+            uptime_sec: Math.round(process.uptime()),
+            node: process.version,
+            port: process.env.PORT || 3000,
+            env: {
+                NODE_ENV: process.env.NODE_ENV || null,
+                DATA_DIR: process.env.DATA_DIR || null
+            },
+            cwd: process.cwd(),
+            viewsPath: app.get('views'),
+            usersFilePath: userRepository.usersFilePath,
+            usersCount: users.length,
+            roleCounts
+        });
+    } catch (e) {
+        res.status(500).json({ status: 'error', message: e?.message });
+    }
+});
+
 // API para criar usuário
 app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
     try {
@@ -1816,6 +1888,60 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
         }
     } catch (error) {
         console.error('Error deleting user:', error);
+        res.json({ success: false, message: 'Internal server error' });
+    }
+});
+
+// Atualizar perfil do próprio usuário (nome e senha)
+app.put('/api/me', requireAuth, (req, res) => {
+    try {
+        const userId = req.session.user.id;
+        const { name, currentPassword, newPassword } = req.body || {};
+
+        const user = userRepository.findById(userId);
+        if (!user) {
+            return res.json({ success: false, message: 'User not found' });
+        }
+
+        // Preparar dados de atualização
+        const updateData = {};
+        if (typeof name === 'string' && name.trim().length > 0) {
+            updateData.name = name.trim();
+        }
+
+        if (typeof newPassword === 'string' && newPassword.trim().length > 0) {
+            // Exigir senha atual correta para alterar a senha
+            if (!currentPassword || !User.comparePassword(currentPassword, user.password)) {
+                return res.json({ success: false, message: 'Current password is invalid' });
+            }
+            updateData.password = newPassword.trim();
+        }
+
+        // Nada para atualizar
+        if (Object.keys(updateData).length === 0) {
+            return res.json({ success: false, message: 'No changes to apply' });
+        }
+
+        const updatedUser = userRepository.update(userId, updateData);
+        if (updatedUser) {
+            // Sincronizar sessão com novo nome, se alterado
+            if (updateData.name) {
+                req.session.user.name = updatedUser.name;
+            }
+            return res.json({
+                success: true,
+                user: {
+                    id: updatedUser.id,
+                    email: updatedUser.email,
+                    name: updatedUser.name,
+                    role: updatedUser.role,
+                    allowedCountries: updatedUser.allowedCountries
+                }
+            });
+        }
+        return res.json({ success: false, message: 'Failed to update profile' });
+    } catch (error) {
+        console.error('Error updating own profile:', error);
         res.json({ success: false, message: 'Internal server error' });
     }
 });

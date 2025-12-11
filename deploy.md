@@ -14,6 +14,25 @@ O sistema LOKOK já está preparado para deploy no Railway com as seguintes conf
 - ✅ `.gitignore` configurado
 - ✅ Dados Excel organizados na pasta `data/`
 
+## 💾 Persistência de Usuários (Railway)
+
+Para evitar perda de senhas e permissões a cada deploy, configure armazenamento persistente para `users.json`:
+
+- Crie um Volume no Railway e monte em `/data` (Service → Storage/Volumes → Add Volume → Mount Path `/data`).
+- Defina a variável de ambiente `DATA_DIR=/data` no serviço.
+- Defina `NODE_ENV=production`.
+- (Opcional) Evite seed de usuários padrão em produção:
+  - Não defina `ALLOW_DEFAULT_USERS_SEED` (ou defina como `false`).
+  - Configure um admin via variáveis de ambiente para garantir acesso:
+    - `SEED_ADMIN_EMAIL=<email>`
+    - `SEED_ADMIN_PASSWORD=<senha>`
+    - `SEED_ADMIN_NAME=<nome>` (opcional)
+    - `SEED_ADMIN_ALLOWED_COUNTRIES=US,CA,MX` (opcional)
+
+Com essas configurações, se `users.json` não existir, o app criará o arquivo no Volume sem semear usuários de teste. Se as variáveis `SEED_ADMIN_*` estiverem definidas, um único admin será criado automaticamente.
+
+Endpoint de diagnóstico: `GET /health` — verifique `usersFilePath` (deve apontar para `/data/users.json`) e `roleCounts`.
+
 ## 🔧 Próximos Passos
 
 ### 1. Instalar Git (se necessário)

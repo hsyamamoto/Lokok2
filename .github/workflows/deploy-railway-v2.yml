@@ -7,6 +7,10 @@ on:
         description: 'Excel path or public XLSX URL (optional)'
         required: false
         default: ''
+      PUBLIC_URL:
+        description: 'Public URL to verify after deploy (optional)'
+        required: false
+        default: ''
 
 jobs:
   deploy:
@@ -18,6 +22,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
           clean: true
+
+      - name: Repo diagnostics (root, files, label check)
+        run: |
+          set -e
+          echo "Repo root contents:"
+          ls -la
+          echo "Git HEAD: $(git rev-parse HEAD)"
+          echo "Last commit:"
+          git log -1 --pretty=format:'%h %ad %an %s' --date=iso
+          echo "Searching for Countries label in views/dashboard.ejs (root)"
+          if [ -f "views/dashboard.ejs" ]; then
+            grep -n "Countries:" views/dashboard.ejs || (echo "ERROR: Countries label not found in root views/dashboard.ejs" >&2; exit 1)
+          else
+            echo "WARNING: Root views/dashboard.ejs not found; project may use subdirectory."
+          fi
+          echo "Server candidates present:"
+          for f in server.js Lokok2/server.js Lokok2/Lokok2/server.js Lokok2/Lokok2/Lokok2/server.js; do
+            if [ -f "$f" ]; then
+              echo "- $f (size $(wc -c < "$f") bytes)"
+              echo "  version route lines:"; grep -n "app.get('/version'" "$f" || true
+            fi
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -100,6 +126,23 @@ jobs:
             echo "No EXCEL_PATH URL provided; skipping download"
           fi
 
+      - name: Resolve PUBLIC_URL param
+        env:
+          PUBLIC_URL_INPUT: ${{ github.event.inputs.PUBLIC_URL }}
+          PUBLIC_URL_VAR: ${{ vars.PUBLIC_URL }}
+          PUBLIC_URL_SECRET: ${{ secrets.PUBLIC_URL }}
+        run: |
+          set -e
+          PUBLIC_URL_FINAL="$PUBLIC_URL_INPUT"
+          if [ -z "$PUBLIC_URL_FINAL" ] && [ -n "$PUBLIC_URL_VAR" ]; then
+            PUBLIC_URL_FINAL="$PUBLIC_URL_VAR"
+          fi
+          if [ -z "$PUBLIC_URL_FINAL" ] && [ -n "$PUBLIC_URL_SECRET" ]; then
+            PUBLIC_URL_FINAL="$PUBLIC_URL_SECRET"
+          fi
+          echo "Resolved PUBLIC_URL: '${PUBLIC_URL_FINAL}'"
+          echo "PUBLIC_URL_FINAL=${PUBLIC_URL_FINAL}" >> $GITHUB_ENV
+
       - name: Deploy (project targeted, no link)
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -140,6 +183,46 @@ jobs:
           fi
           echo "Deploy completed (fingerprint: v2-2025-12-05)."
 
+      - name: Post-deploy logs (best-effort)
+        if: ${{ always() }}
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_SERVICE_NAME: ${{ secrets.RAILWAY_SERVICE_NAME }}
+        run: |
+          set -e
+          echo "Attempting to fetch recent logs (may require account token)"
+          if [ -n "$RAILWAY_SERVICE_ID" ]; then
+            set +e
+            railway logs --service "$RAILWAY_SERVICE_ID" --since 15m --limit 200 | tail -n 200 || echo "Skipping logs: unauthorized or not supported by token"
+            set -e
+          elif [ -n "$RAILWAY_SERVICE_NAME" ]; then
+            set +e
+            railway logs --service "$RAILWAY_SERVICE_NAME" --since 15m --limit 200 | tail -n 200 || echo "Skipping logs: unauthorized or not supported by token"
+            set -e
+          else
+            echo "No service selector provided; cannot fetch logs"
+          fi
+
+      - name: Verify public URL (/version)
+        run: |
+          set -e
+          if [ -z "${PUBLIC_URL_FINAL}" ]; then
+            echo "No PUBLIC_URL provided via input, vars.PUBLIC_URL or secrets.PUBLIC_URL; skipping verification"
+            exit 0
+          fi
+          echo "Verifying PUBLIC_URL: ${PUBLIC_URL_FINAL}/version"
+          set +e
+          HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" "${PUBLIC_URL_FINAL}/version")
+          set -e
+          echo "HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Response:"; sed -n '1,200p' resp.txt || true
+            echo "ERROR: /version returned non-200. Check service root directory and start command." >&2
+            exit 1
+          fi
+          echo "Response:"; sed -n '1,200p' resp.txt
+
       - name: Summary
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
@@ -147,3 +230,5 @@ jobs:
           echo "Workflow: Deploy to Railway v2"
           echo "Fingerprint: v2-2025-12-05"
           echo "Project: $RAILWAY_PROJECT_ID"
+          echo "Service selector: ID=$RAILWAY_SERVICE_ID NAME=$RAILWAY_SERVICE_NAME"
+          echo "Public URL (final): ${PUBLIC_URL_FINAL}"

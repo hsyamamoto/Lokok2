@@ -146,3 +146,31 @@ Para dúvidas ou problemas:
 ---
 
 **Desenvolvido para LOKOK** 🚀
+## Deploy via Railway v2
+
+Este projeto está configurado com um workflow do GitHub Actions para publicar na Railway usando Token de Projeto. Siga os passos abaixo.
+
+### Secrets necessários (GitHub → Settings → Secrets and variables → Actions)
+- `RAILWAY_TOKEN`: Token de Projeto (gere no Railway dentro do projeto alvo).
+- `RAILWAY_PROJECT_ID`: `046f3da1-3292-4e80-b91f-c6aa6f5d8a7b`
+- `RAILWAY_SERVICE_ID`: `63a847a4-fe26-4fe1-ae1c-579713d5d340`
+- Opcional: `RAILWAY_SERVICE_NAME` (se preferir apontar por nome; recomendo usar `RAILWAY_SERVICE_ID` para evitar ambiguidades).
+- Observação: se você tinha `RAILWAY_API_TOKEN` (token de conta) definido, remova ou deixe vazio para evitar confusão.
+
+### Como disparar o deploy
+- Acesse `Actions` no GitHub e escolha o workflow "Deploy to Railway v2".
+- Clique em "Run workflow" e selecione o branch `main`.
+
+### O que aparecerá nos logs
+- O workflow detecta Token de Projeto e pula `railway whoami` e `railway status` (diagnósticos não aplicáveis a token de projeto).
+- O comando de deploy usa `railway up --detach --service <SERVICE_ID>` com o serviço configurado.
+- Não deve solicitar login; o token já carrega contexto de projeto/ambiente.
+
+### Solução de problemas
+- "Unauthorized": gere um novo Token de Projeto no Railway e atualize `RAILWAY_TOKEN` nos secrets.
+- "Service not found": confirme se o `RAILWAY_SERVICE_ID` é do mesmo projeto/ambiente do token. Você pode abrir direto o serviço em `https://railway.app/project/046f3da1-3292-4e80-b91f-c6aa6f5d8a7b/service/63a847a4-fe26-4fe1-ae1c-579713d5d340`.
+- "Multiple services found": mantenha `RAILWAY_SERVICE_ID` preenchido ou defina `RAILWAY_SERVICE_NAME`.
+
+### Dicas
+- Prefira `RAILWAY_SERVICE_ID` quando o nome do serviço tiver espaços/símbolos.
+- Tokens de Projeto geralmente já embutem o `environment`; não é necessário passar `environmentId` no deploy.

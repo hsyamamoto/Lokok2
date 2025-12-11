@@ -72,6 +72,13 @@
                     </h2>
                 </div>
                 <div class="p-6">
+                    <% if (['operador','operator'].includes(String(user?.role || '').toLowerCase())) { %>
+                    <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 px-4 py-3">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        Operador: a busca por Supplier está liberada em todos os países (US, CA, MX).
+                        As ações de Edit/Delete continuam restritas a administradores e gerentes.
+                    </div>
+                    <% } %>
                     <form method="GET" action="/search">
                         <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
                             <div class="md:col-span-8">

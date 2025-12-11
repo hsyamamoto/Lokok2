@@ -9,6 +9,8 @@
     "build": "echo \"Build completed\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/create_backup.ps1",
+    "backup-db": "node scripts/backup_db.js",
+    "maint:update-user": "node scripts/update_user_allowed_countries.js",
     "sync:lokok": "node scripts/sync_wholesale_lokok.js",
     "clean-db": "node scripts/clean_db.js",
     "migrate-db": "node scripts/migrate_db.js"

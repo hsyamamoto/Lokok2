@@ -90,6 +90,7 @@
                             <select id="role" name="role" required
                                     class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-sky-300 focus:ring-0 transition-colors">
                                 <option value="gerente">Manager</option>
+                                <option value="operador">Operator</option>
                                 <option value="admin">Administrator</option>
                             </select>
                         </div>
@@ -148,8 +149,8 @@
                                     </h3>
                                     <div class="flex items-center space-x-2">
                                         <span class="bg-<%= user.role === 'admin' ? 'emerald' : 'amber' %>-200 text-<%= user.role === 'admin' ? 'emerald' : 'amber' %>-800 px-2 py-1 rounded-full text-xs font-medium">
-                                            <i class="fas fa-<%= user.role === 'admin' ? 'crown' : 'user-tie' %> mr-1"></i>
-                                            <%= user.role === 'admin' ? 'Administrator' : 'Manager' %>
+                                            <i class="fas fa-<%= user.role === 'admin' ? 'crown' : ((['operador','operator'].includes((user.role || '').toLowerCase())) ? 'phone' : 'user-tie') %> mr-1"></i>
+                                            <%= user.role === 'admin' ? 'Administrator' : ((['operador','operator'].includes((user.role || '').toLowerCase())) ? 'Operator' : 'Manager') %>
                                         </span>
                                         <% if (user.role !== 'admin' || user.id !== currentUser.id) { %>
                                         <button onclick='editUser(<%- JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role, allowedCountries: (user.allowedCountries || []) }) %>)' class="text-blue-500 hover:text-blue-700 p-1 rounded transition-colors mr-2" title="Edit user">

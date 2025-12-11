@@ -3,21 +3,35 @@ const fs = require('fs');
 const path = require('path');
 const ALLOWED_COUNTRIES = ['US','CA','MX'];
 
+// Normalização de perfis/roles para tokens consistentes (EN)
+function normalizeRole(role) {
+    const r = String(role || '').trim().toLowerCase();
+    if (r === 'administrador') return 'admin';
+    if (r === 'gerente') return 'manager';
+    if (r === 'operador') return 'operator';
+    if (['admin','manager','operator','user'].includes(r)) return r;
+    return r || 'user';
+}
+
 class User {
     constructor(id, email, password, role, name, createdBy = null, allowedCountries = null) {
         this.id = id;
         this.email = email;
         this.password = password;
-        this.role = role; // 'admin' ou 'gerente'
+        this.role = normalizeRole(role); // normaliza PT→EN para consistência
         this.name = name;
         this.createdBy = createdBy; // ID do usuário que criou este usuário
         this.createdAt = new Date();
         this.isActive = true;
         // Países permitidos por perfil
         const normalized = Array.isArray(allowedCountries) ? allowedCountries.map(c => String(c).toUpperCase()) : null;
+        const roleNorm = String(this.role || '').toLowerCase();
+        const defaultCountries = (roleNorm === 'admin' || roleNorm === 'operador' || roleNorm === 'operator')
+            ? ALLOWED_COUNTRIES
+            : ['US'];
         this.allowedCountries = (normalized && normalized.length > 0)
             ? normalized.filter(c => ALLOWED_COUNTRIES.includes(c))
-            : (this.role === 'admin' ? ALLOWED_COUNTRIES : ['US']);
+            : defaultCountries;
     }
 
     // Método para verificar senha
@@ -62,7 +76,8 @@ class UserRepository {
     constructor() {
         this.users = [];
         this.nextId = 1;
-        this.usersFilePath = path.join(__dirname, '..', 'data', 'users.json');
+        const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, '..', 'data');
+        this.usersFilePath = path.join(dataDir, 'users.json');
         this.loadUsers();
     }
 
@@ -96,7 +111,9 @@ class UserRepository {
                         // manter compatibilidade com arquivos antigos sem allowedCountries
                         Array.isArray(u.allowedCountries) && u.allowedCountries.length > 0
                             ? u.allowedCountries
-                            : (u.role === 'admin' ? ALLOWED_COUNTRIES : ['US'])
+                            : ((String(u.role || '').toLowerCase() === 'admin' || ['operador','operator'].includes(String(u.role || '').toLowerCase()))
+                                ? ALLOWED_COUNTRIES
+                                : ['US'])
                     );
                     user.createdAt = new Date(u.createdAt);
                     user.isActive = u.isActive;
@@ -105,10 +122,26 @@ class UserRepository {
                 this.nextId = userData.nextId || 1;
                 console.log(`📊 ${this.users.length} usuários carregados do arquivo`);
             } else {
-                console.log('❌ Arquivo users.json não encontrado, inicializando usuários padrão...');
-                this.initializeDefaultUsers();
-                this.saveUsers();
-                console.log('💾 Arquivo users.json criado com usuários padrão');
+                console.log('❌ Arquivo users.json não encontrado');
+                const inProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+                const allowSeed = String(process.env.ALLOW_DEFAULT_USERS_SEED || '').toLowerCase() === 'true';
+                const hasEnvAdmin = !!process.env.SEED_ADMIN_EMAIL && !!process.env.SEED_ADMIN_PASSWORD;
+                if (inProd && !allowSeed) {
+                    console.log('🚫 Seed padrão desabilitado em produção (ALLOW_DEFAULT_USERS_SEED!=true).');
+                    this.users = [];
+                    this.nextId = 1;
+                    if (hasEnvAdmin) {
+                        console.log('🔐 Seed de admin via variáveis de ambiente habilitado.');
+                        this.initializeEnvAdmin();
+                    }
+                    this.saveUsers();
+                    console.log('💾 Arquivo users.json criado sem seed padrão.');
+                } else {
+                    console.log('🔧 Inicializando usuários padrão (não produção ou seed permitido)...');
+                    this.initializeDefaultUsers();
+                    this.saveUsers();
+                    console.log('💾 Arquivo users.json criado com usuários padrão');
+                }
             }
         } catch (error) {
             console.error('❌ Erro ao carregar usuários:', error);
@@ -134,6 +167,26 @@ class UserRepository {
     // Inicializar usuários padrão (apenas se não existir arquivo)
     initializeDefaultUsers() {
         console.log('🔧 Inicializando usuários padrão...');
+        // Se variáveis de ambiente para admin estiverem presentes, priorizar somente esse admin
+        if (process.env.SEED_ADMIN_EMAIL && process.env.SEED_ADMIN_PASSWORD) {
+            const email = process.env.SEED_ADMIN_EMAIL;
+            const password = process.env.SEED_ADMIN_PASSWORD;
+            const name = process.env.SEED_ADMIN_NAME || 'Admin';
+            const allowed = (process.env.SEED_ADMIN_ALLOWED_COUNTRIES || 'US,CA,MX')
+                .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+            console.log('🔐 Seed de admin via env detectado. Criando apenas admin informado...');
+            this.users.push(new User(
+                this.nextId++,
+                email,
+                User.hashPassword(password),
+                'admin',
+                name,
+                null,
+                allowed
+            ));
+            console.log(`✅ Admin ${email} criado via env.`);
+            return;
+        }
         
         // Usuários de teste originais
         this.users.push(new User(
@@ -195,6 +248,25 @@ class UserRepository {
         console.log(`🎯 Total de usuários criados: ${this.users.length}`);
     }
 
+    // Inicializa admin a partir das variáveis de ambiente (usado quando seed padrão está desabilitado)
+    initializeEnvAdmin() {
+        const email = process.env.SEED_ADMIN_EMAIL;
+        const password = process.env.SEED_ADMIN_PASSWORD;
+        const name = process.env.SEED_ADMIN_NAME || 'Admin';
+        const allowed = (process.env.SEED_ADMIN_ALLOWED_COUNTRIES || 'US,CA,MX')
+            .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+        this.users.push(new User(
+            this.nextId++,
+            email,
+            User.hashPassword(password),
+            'admin',
+            name,
+            null,
+            allowed
+        ));
+        console.log(`✅ Admin ${email} criado via env (initializeEnvAdmin).`);
+    }
+
     // Buscar usuário por email
     findByEmail(email) {
         return this.users.find(user => user.email === email && user.isActive);
@@ -217,15 +289,17 @@ class UserRepository {
 
     // Criar novo usuário
     create(userData) {
+        const roleNorm = normalizeRole(userData.role);
         const user = new User(
             this.nextId++,
             userData.email,
             User.hashPassword(userData.password),
-            userData.role,
+            roleNorm,
             userData.name,
             userData.createdBy,
             Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0 ? userData.allowedCountries : null
         );
+        console.log('[USER CREATE] email=', user.email, 'role=', user.role, 'allowedCountries=', user.allowedCountries);
         this.users.push(user);
         this.saveUsers();
         return user;
@@ -241,10 +315,13 @@ class UserRepository {
             if (userData.password) {
                 user.password = User.hashPassword(userData.password);
             }
-            user.role = userData.role || user.role;
+            if (userData.role) {
+                user.role = normalizeRole(userData.role);
+            }
             if (Array.isArray(userData.allowedCountries) && userData.allowedCountries.length > 0) {
                 user.allowedCountries = userData.allowedCountries;
             }
+            console.log('[USER UPDATE] id=', user.id, 'role=', user.role, 'allowedCountries=', user.allowedCountries);
             this.saveUsers();
             return user;
         }

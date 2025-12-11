@@ -5,7 +5,8 @@ Param(
   [Parameter(Mandatory=$false)][string]$ExcelPath = "",
   [Parameter(Mandatory=$false)][string]$ExcelDownloadUrl = "",
   [Parameter(Mandatory=$false)][string]$ForceLocalExcel = "",
-  [Parameter(Mandatory=$false)][string]$TokenEnvName = "GITHUB_TOKEN"
+  [Parameter(Mandatory=$false)][string]$TokenEnvName = "GITHUB_TOKEN",
+  [Parameter(Mandatory=$false)][string]$WorkflowFile = "deploy-railway-v2.yml"
 )
 
 function Get-GitHubRepoFromRemote {
@@ -49,7 +50,8 @@ if (-not $token) {
   exit 1
 }
 
-$uri = "https://api.github.com/repos/$Owner/$Repo/actions/workflows/deploy-railway.yml/dispatches"
+if (-not $WorkflowFile) { $WorkflowFile = "deploy-railway-v2.yml" }
+$uri = "https://api.github.com/repos/$Owner/$Repo/actions/workflows/$WorkflowFile/dispatches"
 
 $inputs = @{}
 if ($ExcelPath) { $inputs.EXCEL_PATH = $ExcelPath }
@@ -60,7 +62,7 @@ $body = @{ ref = $Ref; inputs = $inputs } | ConvertTo-Json -Depth 5
 
 $headers = @{ Authorization = "Bearer $token"; Accept = "application/vnd.github+json" }
 
-Write-Host "Disparando workflow 'deploy-railway.yml' em $Owner/$Repo (ref=$Ref)..."
+Write-Host "Disparando workflow '$WorkflowFile' em $Owner/$Repo (ref=$Ref)..."
 try {
   $resp = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
   Write-Host "Workflow dispatch enviado com sucesso. Verifique o GitHub Actions para progresso."
@@ -69,4 +71,3 @@ try {
   if ($_.ErrorDetails.Message) { Write-Error $_.ErrorDetails.Message }
   exit 1
 }
-

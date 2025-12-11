@@ -97,7 +97,28 @@ jobs:
           npm i -g @railway/cli
           railway --version
 
-      - name: Link project when using API token
+      - name: Authenticate Railway CLI with token
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          set -e
+          TOKEN="$RAILWAY_TOKEN"
+          if [ -z "$TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
+            TOKEN="$RAILWAY_API_TOKEN"
+          fi
+          if [ -n "$TOKEN" ]; then
+            echo "Authenticating Railway CLI with token"
+            railway login --token "$TOKEN" || {
+              echo "ERROR: Falha ao autenticar com o token fornecido. Verifique se o token é válido e possui acesso ao projeto." >&2
+              exit 1
+            }
+          else
+            echo "ERROR: Nenhum token Railway fornecido." >&2
+            exit 1
+          fi
+
+      - name: Verify Railway project context
         env:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
@@ -109,22 +130,18 @@ jobs:
             echo "Railway CLI missing; installing..."
             npm i -g @railway/cli
           fi
-          if [ -z "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
-            export RAILWAY_TOKEN="$RAILWAY_API_TOKEN"
-            echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
-          fi
-          if [ -n "$RAILWAY_API_TOKEN" ]; then
-            if [ -n "$RAILWAY_PROJECT_ID" ]; then
-              echo "Linking to project $RAILWAY_PROJECT_ID"
-              railway link --project "$RAILWAY_PROJECT_ID" || railway link "$RAILWAY_PROJECT_ID"
-            else
-              echo "ERROR: RAILWAY_API_TOKEN fornecido sem RAILWAY_PROJECT_ID. Defina RAILWAY_PROJECT_ID para direcionar as variáveis ao projeto correto." >&2
+          railway whoami || {
+            echo "ERROR: Não autenticado; verifique o token." >&2
+            exit 1
+          }
+          if [ -n "$RAILWAY_PROJECT_ID" ]; then
+            railway status --project "$RAILWAY_PROJECT_ID" || {
+              echo "ERROR: Projeto inacessível com o token atual. Confirme RAILWAY_PROJECT_ID e permissões do token." >&2
               exit 1
-            fi
+            }
           else
-            echo "Project token detectado (RAILWAY_TOKEN); skip do link explícito."
+            echo "AVISO: RAILWAY_PROJECT_ID não definido; os comandos usarão o contexto padrão do CLI."
           fi
-          railway status || true
 
       - name: Assert target domain before setting variables
         run: |
@@ -132,7 +149,7 @@ jobs:
           if ! command -v railway >/dev/null 2>&1; then
             npm i -g @railway/cli
           fi
-          if ! railway domain list 2>/dev/null | grep -qi 'new-lokok-production'; then
+          if ! railway domain list --project "${{ secrets.RAILWAY_PROJECT_ID }}" 2>/dev/null | grep -qi 'new-lokok-production'; then
             echo "ERROR: Domínio new-lokok-production não encontrado no projeto corrente (antes de setar variáveis)." >&2
             echo "Garanta que o projeto esteja corretamente vinculado (RAILWAY_PROJECT_ID / RAILWAY_TOKEN)." >&2
             exit 1
@@ -140,6 +157,7 @@ jobs:
 
       - name: Set Railway variables
         env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           INPUT_USE_DB: ${{ github.event.inputs.USE_DB }}
           INPUT_NODE_ENV: ${{ github.event.inputs.NODE_ENV }}
           INPUT_FORCE_LOCAL_EXCEL: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
@@ -166,64 +184,64 @@ jobs:
             echo "Fallback: mapped RAILWAY_API_TOKEN -> RAILWAY_TOKEN"
           fi
           # Required/defaulted variables
-          railway variables NODE_ENV="${INPUT_NODE_ENV:-production}"
+          railway variables --project "$RAILWAY_PROJECT_ID" NODE_ENV="${INPUT_NODE_ENV:-production}"
           # FORCE_LOCAL_EXCEL: set only if input is provided; otherwise auto-toggle later based on Drive ID
           if [ -n "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-            railway variables FORCE_LOCAL_EXCEL="$INPUT_FORCE_LOCAL_EXCEL"
+            railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL="$INPUT_FORCE_LOCAL_EXCEL"
             echo "FORCE_LOCAL_EXCEL set from input: $INPUT_FORCE_LOCAL_EXCEL"
           else
             echo "FORCE_LOCAL_EXCEL left unchanged here; will auto-toggle based on Drive ID."
           fi
-          railway variables EXCEL_PATH="${INPUT_EXCEL_PATH:-./data/cached_spreadsheet.xlsx}"
-          railway variables DEFAULT_ADMIN_ALLOWED_COUNTRIES="${INPUT_DEFAULT_ADMIN_ALLOWED_COUNTRIES:-US,CA,MX}"
+          railway variables --project "$RAILWAY_PROJECT_ID" EXCEL_PATH="${INPUT_EXCEL_PATH:-./data/cached_spreadsheet.xlsx}"
+          railway variables --project "$RAILWAY_PROJECT_ID" DEFAULT_ADMIN_ALLOWED_COUNTRIES="${INPUT_DEFAULT_ADMIN_ALLOWED_COUNTRIES:-US,CA,MX}"
 
           # Database URL and USE_DB handling
           FINAL_DB_URL="${INPUT_DATABASE_URL:-$DATABASE_URL_SECRET}"
           if [ -n "$FINAL_DB_URL" ]; then
-            railway variables DATABASE_URL="$FINAL_DB_URL"
+            railway variables --project "$RAILWAY_PROJECT_ID" DATABASE_URL="$FINAL_DB_URL"
             echo "DATABASE_URL set."
           fi
           if [ -n "$INPUT_USE_DB" ]; then
-            railway variables USE_DB="$INPUT_USE_DB"
+            railway variables --project "$RAILWAY_PROJECT_ID" USE_DB="$INPUT_USE_DB"
             echo "USE_DB set from input: $INPUT_USE_DB"
           else
             if [ -n "$FINAL_DB_URL" ]; then
-              railway variables USE_DB=true
+              railway variables --project "$RAILWAY_PROJECT_ID" USE_DB=true
               echo "USE_DB=TRUE (auto) because DATABASE_URL provided."
             else
-              railway variables USE_DB=false
+              railway variables --project "$RAILWAY_PROJECT_ID" USE_DB=false
               echo "USE_DB=FALSE (auto) because DATABASE_URL absent."
             fi
           fi
 
           # Optional overrides (only set when provided)
           if [ -n "$INPUT_SESSION_SECRET" ]; then
-            railway variables SESSION_SECRET="$INPUT_SESSION_SECRET"
+            railway variables --project "$RAILWAY_PROJECT_ID" SESSION_SECRET="$INPUT_SESSION_SECRET"
           else
             echo "SESSION_SECRET left unchanged (using existing secret or default)."
           fi
           # Drive ID: prefer input, otherwise use secret; auto-toggle FORCE_LOCAL_EXCEL accordingly when no explicit input
           FINAL_DRIVE_ID="${INPUT_GOOGLE_DRIVE_FILE_ID:-$GOOGLE_DRIVE_FILE_ID_SECRET}"
           if [ -n "$FINAL_DRIVE_ID" ]; then
-            railway variables GOOGLE_DRIVE_FILE_ID="$FINAL_DRIVE_ID"
+            railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_DRIVE_FILE_ID="$FINAL_DRIVE_ID"
             echo "GOOGLE_DRIVE_FILE_ID set (Drive enabled)."
             if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-              railway variables FORCE_LOCAL_EXCEL=0
+              railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL=0
               echo "FORCE_LOCAL_EXCEL=0 (auto) due to Drive ID present."
             fi
           else
-            railway variables GOOGLE_DRIVE_FILE_ID=
+            railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_DRIVE_FILE_ID=
             echo "GOOGLE_DRIVE_FILE_ID empty; Drive disabled."
             if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-              railway variables FORCE_LOCAL_EXCEL=1
+              railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL=1
               echo "FORCE_LOCAL_EXCEL=1 (auto) because Drive ID absent."
             fi
           fi
           if [ -n "$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
-            railway variables GOOGLE_SERVICE_ACCOUNT_EMAIL="$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL"
+            railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_SERVICE_ACCOUNT_EMAIL="$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL"
           fi
           if [ -n "$INPUT_GOOGLE_PRIVATE_KEY" ]; then
-            railway variables GOOGLE_PRIVATE_KEY="$INPUT_GOOGLE_PRIVATE_KEY"
+            railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_PRIVATE_KEY="$INPUT_GOOGLE_PRIVATE_KEY"
           fi
 
       - name: Summary

@@ -67,6 +67,11 @@
                               <% }); %>
                         </select>
                     </div>
+                    <% if (['operador','operator'].includes(String(user?.role || '').toLowerCase())) { %>
+                    <div class="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                        Operador: acesso habilitado para US, CA e MX.
+                    </div>
+                    <% } %>
                     <% if (user && user.role === 'admin') { %>
                     <a href="/users" class="text-sm text-blue-700 hover:text-blue-900 transition-colors duration-200">
                         <i class="fas fa-users mr-1"></i>

@@ -101,17 +101,40 @@ app.get('/healthz-simple', (req, res) => {
     });
 });
 
-// Debug: listar rotas registradas no servidor atual
+// Debug: listar rotas registradas no servidor atual (robusto, Express 4/5)
 app.get('/debug/routes', (req, res) => {
     try {
         const routes = [];
-        const stack = app._router && app._router.stack ? app._router.stack : [];
-        for (const layer of stack) {
-            if (layer.route && layer.route.path) {
-                const methods = Object.keys(layer.route.methods || {}).filter(Boolean);
-                routes.push({ path: layer.route.path, methods });
+        const rootStack = app && app._router && Array.isArray(app._router.stack) ? app._router.stack : [];
+
+        const traverse = (stack, prefix = '') => {
+            for (const layer of stack) {
+                // Rotas diretas (app.get/post/etc)
+                if (layer && layer.route && layer.route.path) {
+                    const methods = Object.keys(layer.route.methods || {}).filter(Boolean);
+                    routes.push({ path: prefix + layer.route.path, methods });
+                }
+                // Sub-routers (app.use('/base', router))
+                else if (layer && layer.name === 'router' && layer.handle && Array.isArray(layer.handle.stack)) {
+                    // Tentar obter o prefixo montado (Express não expõe caminho de forma estável em todas versões)
+                    let mountPath = '';
+                    try {
+                        // Algumas versões expõem layer.regexp como /^\/base\/?(?=\/|$)/i
+                        const rx = layer.regexp;
+                        if (rx && rx.fast_star) {
+                            mountPath = '*'; // fallback
+                        } else if (rx && typeof rx.toString === 'function') {
+                            const m = String(rx).match(/\^\\\/(.*?)\\\/?\(\?=\\\/+\|\$\)/);
+                            if (m && m[1]) mountPath = '/' + m[1].replace(/\\\//g, '/');
+                        }
+                    } catch (_) {}
+                    traverse(layer.handle.stack, prefix + (mountPath || ''));
+                }
             }
-        }
+        };
+
+        traverse(rootStack);
+
         res.json({
             serverFile: __filename,
             serverDir: __dirname,

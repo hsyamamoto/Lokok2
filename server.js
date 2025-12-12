@@ -713,6 +713,48 @@ function requireManagerOrAdmin(req, res, next) {
     }
 }
 
+// Extrai um valor de responsabilidade (Responsable/Manager/Buyer e variações)
+function extractManagerLikeValue(rec) {
+    if (!rec || typeof rec !== 'object') return '';
+    const obj = rec.distributor && typeof rec.distributor === 'object' ? rec.distributor : rec;
+    // Tentar via getField com um conjunto expandido de chaves conhecidas
+    const primary = getField(obj, [
+        'Responsable', 'Manager', 'Buyer',
+        'Responsable Buyer', 'Responsible Buyer', 'Buyer Responsable', 'Buyer Responsible',
+        'Assigned', 'Assigned To', 'Assigned_To', 'AssignedTo',
+        'Purchase Manager', 'Purchasing Manager', 'Purchasing Buyer', 'Buyer Manager'
+    ]);
+    if ((primary || '').trim().length > 0) return primary;
+    // Fallback: varrer chaves e procurar tokens de responsabilidade
+    const normalizeKey = (s) => String(s || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '');
+    const tokens = ['responsable','responsible','manager','buyer','assigned','purchase','purchasing'];
+    const keys = Object.keys(obj || {});
+    for (const k of keys) {
+        const nk = normalizeKey(k);
+        if (tokens.some(t => nk.includes(t))) {
+            const val = obj[k];
+            if ((val || '').toString().trim().length > 0) return val;
+        }
+    }
+    return '';
+}
+
+// Verifica se o usuário é mencionado em um valor de responsabilidade (por email, nome completo ou tokens do nome)
+function isUserMentionedIn(value, user) {
+    const v = String(value || '').toLowerCase();
+    if (!v) return false;
+    const email = String(user?.email || '').toLowerCase();
+    const fullName = String(user?.name || '').toLowerCase();
+    const tokens = fullName.split(/\s+/).filter(t => t && t.length >= 3);
+    if (email && v.includes(email)) return true;
+    if (fullName && v.includes(fullName)) return true;
+    return tokens.some(t => v.includes(t));
+}
+
 // Helpers de armazenamento local de distribuidores (pendências, aprovações, tarefas de operador)
 // Permitir diretório de dados configurável para persistência (ex.: Railway Volume)
 const DATA_DIR = (function resolveDataDir() {
@@ -2437,13 +2479,11 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
                 user: user
             });
         }
-        const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+        const managerRaw = extractManagerLikeValue(record);
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const responsibleLc = String(managerRaw || '').toLowerCase();
-        const userNameLc = String(user.name || '').toLowerCase();
-        const userEmailLc = String(user.email || '').toLowerCase();
-        const canEditByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
+        const responsibleVal = String(managerRaw || '');
+        const canEditByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
         const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
         const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
         const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
@@ -2490,13 +2530,11 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
                 message: 'Access denied. Only administrators and managers can edit records.' 
             });
         }
-        const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+        const managerRaw = extractManagerLikeValue(record);
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const responsibleLc = String(managerRaw || '').toLowerCase();
-        const userNameLc = String(user.name || '').toLowerCase();
-        const userEmailLc = String(user.email || '').toLowerCase();
-        const canEditByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
+        const responsibleVal = String(managerRaw || '');
+        const canEditByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
         const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
         const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
         const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
@@ -2667,13 +2705,11 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
             if (roleNormDel !== 'manager') {
                 return res.status(403).json({ success: false, message: 'Access denied. Only administrators and managers can delete records.' });
             }
-            const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+            const managerRaw = extractManagerLikeValue(record);
             const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
             const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-            const responsibleLc = String(managerRaw || '').toLowerCase();
-            const userNameLc = String(user.name || '').toLowerCase();
-            const userEmailLc = String(user.email || '').toLowerCase();
-            const canDeleteByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
+            const responsibleVal = String(managerRaw || '');
+            const canDeleteByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
             const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
             const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
             const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();

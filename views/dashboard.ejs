@@ -164,7 +164,7 @@
                     Bulk Upload
                 </a>
                 <% } %>
-                <% if (!(user.role === 'operador' || user.role === 'operator')) { %>
+                <% if (['admin','manager','gerente','operador','operator'].includes(String(user.role || '').toLowerCase())) { %>
                 <a href="/search" class="flex items-center justify-center px-6 py-3 bg-gradient-to-r from-emerald-300 to-emerald-400 text-emerald-800 text-sm font-medium rounded-lg hover:from-emerald-400 hover:to-emerald-500 transition-all duration-200 shadow-md hover:shadow-lg">
                     <i class="fas fa-search mr-2"></i>
                     Search Suppliers

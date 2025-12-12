@@ -1996,7 +1996,7 @@ app.put('/api/me', requireAuth, (req, res) => {
 });
 
 // Rota de busca
-app.get('/search', requireAuth, requireManagerOrAdmin, async (req, res) => {
+app.get('/search', requireAuth, requireRole(['operator','admin','manager']), async (req, res) => {
     const { query, type } = req.query;
     // Garantir que buscas respeitem o país selecionado na sessão
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');

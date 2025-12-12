@@ -105,6 +105,7 @@ app.get('/healthz-simple', (req, res) => {
 app.get('/debug/routes', (req, res) => {
     try {
         const routes = [];
+        const debugLayers = [];
         const rootStack = app && app._router && Array.isArray(app._router.stack) ? app._router.stack : [];
 
         const traverse = (stack, prefix = '') => {
@@ -113,6 +114,12 @@ app.get('/debug/routes', (req, res) => {
                 if (layer && layer.route && layer.route.path) {
                     const methods = Object.keys(layer.route.methods || {}).filter(Boolean);
                     routes.push({ path: prefix + layer.route.path, methods });
+                    debugLayers.push({
+                        kind: 'route',
+                        name: layer.name,
+                        path: prefix + layer.route.path,
+                        methods
+                    });
                 }
                 // Sub-routers (app.use('/base', router))
                 else if (layer && layer.name === 'router' && layer.handle && Array.isArray(layer.handle.stack)) {
@@ -128,7 +135,22 @@ app.get('/debug/routes', (req, res) => {
                             if (m && m[1]) mountPath = '/' + m[1].replace(/\\\//g, '/');
                         }
                     } catch (_) {}
+                    debugLayers.push({
+                        kind: 'router',
+                        name: layer.name,
+                        mountPath: mountPath || '',
+                        childCount: layer.handle.stack.length
+                    });
                     traverse(layer.handle.stack, prefix + (mountPath || ''));
+                }
+                else {
+                    // Middleware genérico
+                    debugLayers.push({
+                        kind: 'middleware',
+                        name: layer && layer.name,
+                        hasRoute: !!(layer && layer.route),
+                        isRouter: !!(layer && layer.name === 'router')
+                    });
                 }
             }
         };
@@ -138,7 +160,11 @@ app.get('/debug/routes', (req, res) => {
         res.json({
             serverFile: __filename,
             serverDir: __dirname,
-            routes
+            routes,
+            debug: {
+                stackSize: rootStack.length,
+                layerSamples: debugLayers.slice(0, 30)
+            }
         });
     } catch (e) {
         res.status(500).json({ error: e?.message || String(e) });

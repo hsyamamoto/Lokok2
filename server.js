@@ -1413,7 +1413,14 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     // Ler pendências de aprovação
     const suppliersStore = readSuppliersStore();
     const pendingApprovals = suppliersStore.filter(item => item.status === 'pending_approval');
-    const operatorTasks = suppliersStore.filter(item => item.status === 'approved' && item.operatorTaskPending === true);
+    // Base: tarefas de operador pendentes
+    let operatorTasks = suppliersStore.filter(item => item.status === 'approved' && item.operatorTaskPending === true);
+    // Se for operador, filtra apenas tarefas atribuídas a ele
+    const _role = String(req.session.user?.role || '').toLowerCase();
+    if (_role === 'operador' || _role === 'operator') {
+        const userEmail = String(req.session.user?.email || '').toLowerCase();
+        operatorTasks = operatorTasks.filter(item => String(item.operatorAssigned || '').toLowerCase() === userEmail);
+    }
     const myRejected = suppliersStore.filter(item => item.status === 'rejected' && item.createdBy?.id === req.session.user?.id);
     
     console.log('[PRODUCTION DEBUG] Renderizando dashboard com stats:', {

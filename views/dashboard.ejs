@@ -282,8 +282,10 @@
             </div>
             <% } %>
         </div>
+        <% } %>
 
-        <!-- Operator Tasks (Admin) -->
+        <!-- Operator Tasks -->
+        <% if (['admin','operador','operator'].includes(String(user.role || '').toLowerCase())) { %>
         <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
             <h3 class="text-xl font-semibold text-gray-900 mb-4">
                 <i class="fas fa-phone mr-2 text-sky-500"></i>
@@ -358,7 +360,8 @@
         </div>
         <% } %>
 
-        <!-- Monthly Stats -->
+        <!-- Monthly Stats (hidden for operator) -->
+        <% if (!(['operador','operator'].includes(String(user.role || '').toLowerCase()))) { %>
         <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
             <h3 class="text-xl font-semibold text-gray-900 mb-4">
                 <i class="fas fa-calendar-alt mr-2 text-violet-500"></i>
@@ -409,7 +412,7 @@
             </div>
         </div>
 
-        <!-- Recent Records (preview dos últimos 5) -->
+        <!-- Recent Records (preview dos últimos 5) - hidden for operator -->
         <div class="bg-white rounded-xl shadow-lg p-6">
             <h3 class="text-xl font-semibold text-gray-900 mb-4">
                 <i class="fas fa-table mr-2 text-sky-500"></i>
@@ -490,6 +493,7 @@
                 </a>
             </div>
         </div>
+        <% } %>
     </div>
     <script>
         // Gráfico de Pizza para Categorias

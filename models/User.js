@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const NODE_ENV = String(process.env.NODE_ENV || 'development').toLowerCase();
 const ALLOWED_COUNTRIES = ['US','CA','MX'];
 
 // Normalização de perfis/roles para tokens consistentes (EN)
@@ -76,8 +77,50 @@ class UserRepository {
     constructor() {
         this.users = [];
         this.nextId = 1;
-        const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, '..', 'data');
+        // Resolver diretório de dados com preferência forte por volume persistente em produção
+        const inProd = NODE_ENV === 'production';
+        let dataDir;
+        if (inProd) {
+            // Em produção, SEMPRE usar DATA_DIR ou '/data' e nunca cair para o diretório do repositório
+            dataDir = path.resolve(process.env.DATA_DIR || '/data');
+        } else {
+            // Em desenvolvimento, respeitar DATA_DIR se fornecido, senão tentar '/data' e por fim o diretório local
+            if (process.env.DATA_DIR) {
+                dataDir = path.resolve(process.env.DATA_DIR);
+            } else {
+                try {
+                    if (fs.existsSync('/data')) {
+                        dataDir = '/data';
+                    }
+                } catch (_) {}
+                dataDir = dataDir || path.join(__dirname, '..', 'data');
+            }
+        }
+        // Garantir criação do diretório de dados
+        try {
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir, { recursive: true });
+            }
+        } catch (e) {
+            console.warn('⚠️ Não foi possível criar DATA_DIR:', dataDir, e?.message);
+        }
         this.usersFilePath = path.join(dataDir, 'users.json');
+
+        // Migração inicial: se em produção o arquivo não existir no DATA_DIR, copiar do repositório se disponível
+        if (inProd) {
+            const repoUsers = path.join(__dirname, '..', 'data', 'users.json');
+            try {
+                const dataDirExists = fs.existsSync(path.dirname(this.usersFilePath));
+                const usersExists = fs.existsSync(this.usersFilePath);
+                const repoExists = fs.existsSync(repoUsers);
+                if (dataDirExists && !usersExists && repoExists) {
+                    fs.copyFileSync(repoUsers, this.usersFilePath);
+                    console.log('📦 Migração: copiado users.json do repositório para DATA_DIR');
+                }
+            } catch (e) {
+                console.warn('⚠️ Falha na migração de users.json para DATA_DIR:', e?.message);
+            }
+        }
         this.loadUsers();
     }
 
@@ -99,8 +142,11 @@ class UserRepository {
             if (fs.existsSync(this.usersFilePath)) {
                 console.log('✅ Arquivo users.json encontrado, carregando...');
                 const data = fs.readFileSync(this.usersFilePath, 'utf8');
-                const userData = JSON.parse(data);
-                this.users = userData.users.map(u => {
+                const parsed = JSON.parse(data);
+                const list = Array.isArray(parsed)
+                    ? parsed
+                    : (parsed && Array.isArray(parsed.users) ? parsed.users : []);
+                this.users = list.map(u => {
                     const user = new User(
                         u.id,
                         u.email,
@@ -119,11 +165,14 @@ class UserRepository {
                     user.isActive = u.isActive;
                     return user;
                 });
-                this.nextId = userData.nextId || 1;
+                // nextId: usar valor salvo ou inferir pelo maior ID
+                const savedNext = (!Array.isArray(parsed) && parsed && parsed.nextId) ? parsed.nextId : null;
+                const maxId = this.users.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+                this.nextId = savedNext || (maxId + 1) || 1;
                 console.log(`📊 ${this.users.length} usuários carregados do arquivo`);
             } else {
                 console.log('❌ Arquivo users.json não encontrado');
-                const inProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+                const inProd = NODE_ENV === 'production';
                 const allowSeed = String(process.env.ALLOW_DEFAULT_USERS_SEED || '').toLowerCase() === 'true';
                 const hasEnvAdmin = !!process.env.SEED_ADMIN_EMAIL && !!process.env.SEED_ADMIN_PASSWORD;
                 if (inProd && !allowSeed) {
@@ -145,7 +194,14 @@ class UserRepository {
             }
         } catch (error) {
             console.error('❌ Erro ao carregar usuários:', error);
-            console.log('🔄 Fallback: inicializando usuários padrão...');
+            // Em caso de erro de leitura/parse, não sobrescrever arquivo existente em produção
+            if (fs.existsSync(this.usersFilePath) && NODE_ENV === 'production') {
+                console.warn('⚠️ Erro ao ler users.json em produção. Mantendo arquivo como está e iniciando sem usuários carregados.');
+                this.users = [];
+                this.nextId = 1;
+                return;
+            }
+            console.log('🔄 Fallback: inicializando usuários padrão (ambiente não produção ou arquivo ausente)...');
             this.initializeDefaultUsers();
             this.saveUsers();
         }

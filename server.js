@@ -649,6 +649,38 @@ function normalize(s) {
         .trim();
 }
 
+// Helper global para obter um campo de forma robusta (ignora acentos, caixa, espaços e pontuação)
+function getField(record, keys) {
+    try {
+        if (!record || typeof record !== 'object') return '';
+        const normalizeKey = (s) => ((s || '') + '')
+            .toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '')
+            .trim();
+        const wanted = new Set((Array.isArray(keys) ? keys : []).map(k => normalizeKey(k)));
+        for (const k of Object.keys(record)) {
+            const nk = normalizeKey(k);
+            if (wanted.has(nk)) {
+                const v = record[k];
+                if (v !== undefined && v !== null && ((String(v)).trim().length > 0)) {
+                    return v;
+                }
+            }
+        }
+        // fallback: tentativa direta usando as chaves fornecidas
+        for (const k of (Array.isArray(keys) ? keys : [])) {
+            const v = record[k];
+            if (v !== undefined && v !== null && ((String(v)).trim().length > 0)) {
+                return v;
+            }
+        }
+        return '';
+    } catch (_) {
+        return '';
+    }
+}
+
 // Middleware de autorização por role
 function requireRole(roles) {
     return (req, res, next) => {
@@ -2406,10 +2438,12 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
             });
         }
         const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
-        const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
+        const responsibleLc = String(managerRaw || '').toLowerCase();
+        const userNameLc = String(user.name || '').toLowerCase();
+        const userEmailLc = String(user.email || '').toLowerCase();
+        const canEditByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
         const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
         const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
         const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
@@ -2457,10 +2491,12 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
             });
         }
         const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
-        const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
+        const responsibleLc = String(managerRaw || '').toLowerCase();
+        const userNameLc = String(user.name || '').toLowerCase();
+        const userEmailLc = String(user.email || '').toLowerCase();
+        const canEditByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
         const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
         const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
         const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
@@ -2632,11 +2668,12 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
                 return res.status(403).json({ success: false, message: 'Access denied. Only administrators and managers can delete records.' });
             }
             const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
-            const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
             const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
             const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-            const userNameNorm = normalize(user.name);
-            const canDeleteByResponsable = responsaveis.length === 0 || responsaveis.some(r => normalize(r) === userNameNorm);
+            const responsibleLc = String(managerRaw || '').toLowerCase();
+            const userNameLc = String(user.name || '').toLowerCase();
+            const userEmailLc = String(user.email || '').toLowerCase();
+            const canDeleteByResponsable = !responsibleLc || responsibleLc.includes(userNameLc) || (userEmailLc && responsibleLc.includes(userEmailLc));
             const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
             const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
             const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();

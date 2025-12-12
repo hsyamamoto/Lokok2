@@ -683,7 +683,13 @@ function requireManagerOrAdmin(req, res, next) {
 
 // Helpers de armazenamento local de distribuidores (pendências, aprovações, tarefas de operador)
 // Permitir diretório de dados configurável para persistência (ex.: Railway Volume)
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
+const DATA_DIR = (function resolveDataDir() {
+    if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
+    try {
+        if (fs.existsSync('/data')) return '/data';
+    } catch (_) {}
+    return path.join(__dirname, 'data');
+})();
 const SUPPLIERS_STORE_PATH = path.join(DATA_DIR, 'suppliers.json');
 function ensureSuppliersStore() {
     try {
@@ -2390,7 +2396,7 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
     
     const record = data[recordId];
 
-    // Verificar permissões: admin pode editar tudo; gerente pode editar se for responsável OU se o país selecionado estiver em allowedCountries
+    // Verificar permissões: admin pode editar tudo; gerente pode editar se for responsável OU se o país selecionado estiver em allowedCountries OU se for o criador (Owner)
     const roleNorm = normalizeRole(user.role);
     if (roleNorm !== 'admin') {
         if (roleNorm !== 'manager') {
@@ -2399,11 +2405,16 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
                 user: user
             });
         }
-        const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
+        const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+        const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
         const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
-        if (!canEditByResponsable && !isAllowedCountry) {
+        const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+        const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+        const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+        const canEditByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+        if (!canEditByResponsable && !isAllowedCountry && !canEditByCreated) {
             return res.status(403).render('error', {
                 message: 'Access denied. You can only edit distributors you are responsible for or within your allowed countries.',
                 user: user
@@ -2445,11 +2456,16 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
                 message: 'Access denied. Only administrators and managers can edit records.' 
             });
         }
-        const responsaveis = record.Responsable ? record.Responsable.split(',').map(r => r.trim()) : [];
+        const managerRaw = getField(record, ['Responsable','Manager','Buyer']);
+        const responsaveis = managerRaw ? String(managerRaw).split(',').map(r => r.trim()) : [];
         const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
         const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
         const canEditByResponsable = responsaveis.length === 0 || responsaveis.includes(user.name);
-        if (!canEditByResponsable && !isAllowedCountry) {
+        const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+        const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+        const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+        const canEditByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+        if (!canEditByResponsable && !isAllowedCountry && !canEditByCreated) {
             return res.status(403).json({ 
                 success: false, 
                 message: 'Access denied. You can only edit distributors you are responsible for or within your allowed countries.' 

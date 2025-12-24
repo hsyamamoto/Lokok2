@@ -19,17 +19,6 @@ const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const REQUIRE_DB = (process.env.REQUIRE_DB === '1' || String(process.env.REQUIRE_DB || '').toLowerCase() === 'true');
 
-// Bloqueio de execução em localhost nesta workspace
-const isRailwayEnv = Boolean(
-    process.env.RAILWAY_STATIC_URL ||
-    process.env.RAILWAY_ENVIRONMENT ||
-    process.env.RAILWAY_PROJECT_ID
-);
-const DISABLE_LOCAL = process.env.DISABLE_LOCAL ?? '1';
-if (DISABLE_LOCAL === '1' && !isRailwayEnv) {
-    console.error('[Startup blocked] Localhost desabilitado neste workspace. Use o deploy (Railway).');
-    process.exit(1);
-}
 
 function isDbEnabledForWrites() {
     const isProd = NODE_ENV === 'production';
@@ -2074,6 +2063,15 @@ app.get('/health', (req, res) => {
         });
     } catch (e) {
         res.status(500).json({ status: 'error', message: e?.message });
+    }
+});
+
+// Suporte a HEAD para healthcheck de plataformas que usam HEAD
+app.head('/health', (req, res) => {
+    try {
+        res.status(200).end();
+    } catch (_) {
+        res.status(500).end();
     }
 });
 

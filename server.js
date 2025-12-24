@@ -2048,21 +2048,11 @@ app.get('/users', requireAuth, requireAdmin, async (req, res) => {
     }
 });
 
-// Healthcheck detalhado para diagnóstico em produção
-app.get('/health', async (req, res) => {
+// Healthcheck detalhado para diagnóstico em produção (instantâneo, sem I/O bloqueante)
+app.get('/health', (req, res) => {
     try {
-        let users = [];
-        try {
-            users = await userRepository.findAllAsync();
-        } catch (e) {
-            console.warn('[HEALTH] Falha ao obter usuários para health:', e?.message || e);  
-        }
-        const roleCounts = users.reduce((acc, u) => {
-            const r = String(u.role || '').toLowerCase();
-            acc[r] = (acc[r] || 0) + 1;
-            return acc;
-        }, {});
-        res.json({
+        const roleCounts = {}; // não consulta DB para evitar atrasos
+        res.status(200).json({
             status: 'ok',
             pid: process.pid,
             uptime_sec: Math.round(process.uptime()),
@@ -2079,7 +2069,7 @@ app.get('/health', async (req, res) => {
             viewsPath: app.get('views'),
             userSource: 'database',
             usersFilePath: null,
-            usersCount: users.length,
+            usersCount: 0,
             roleCounts
         });
     } catch (e) {

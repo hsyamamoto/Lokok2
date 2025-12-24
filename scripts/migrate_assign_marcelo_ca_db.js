@@ -8,23 +8,11 @@
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('../database');
+const { DbUserRepository } = require('../models/UserDbRepository');
 
-function loadUsers() {
-  const candidates = [
-    path.resolve(__dirname, '..', 'data', 'users.json'),
-    path.resolve(__dirname, '..', 'Lokok2', 'data', 'users.json'),
-    path.resolve(__dirname, '..', 'Lokok2', 'Lokok2', 'data', 'users.json'),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      const raw = fs.readFileSync(p, 'utf-8');
-      try {
-        const obj = JSON.parse(raw);
-        return obj.users || obj;
-      } catch (_) {}
-    }
-  }
-  throw new Error('users.json não encontrado');
+async function loadMarceloFromDb() {
+  const repo = new DbUserRepository();
+  return await repo.findByEmailAsync('marcelogalvis@mylokok.com');
 }
 
 function findUserByEmail(users, email) {
@@ -61,9 +49,8 @@ function setCreatedBy(rec, user, force) {
 }
 
 async function run(apply = false, forceCreatedBy = false) {
-  const users = loadUsers();
-  const marcelo = findUserByEmail(users, 'marcelogalvis@mylokok.com');
-  if (!marcelo) throw new Error('Usuário Marcelo não encontrado em users.json');
+  const marcelo = await loadMarceloFromDb();
+  if (!marcelo) throw new Error('Usuário Marcelo não encontrado no banco de dados');
 
   let client;
   try {
@@ -130,4 +117,3 @@ const apply = args.includes('--apply');
 const forceCreatedBy = args.includes('--force-created-by');
 
 run(apply, forceCreatedBy);
-

@@ -1,0 +1,458 @@
+{
+  "generatedAt": "2025-12-13T02:04:13.268Z",
+  "totals": {
+    "unknown": 5
+  },
+  "users": [
+    {
+      "user": {
+        "id": 1,
+        "email": "admin@mylokok.com",
+        "name": "Admin",
+        "role": "admin",
+        "allowedCountries": [
+          "US",
+          "CA",
+          "MX"
+        ]
+      },
+      "summary": {
+        "editable": 5,
+        "deletable": 5,
+        "byCountry": {
+          "unknown": {
+            "editable": 5,
+            "deletable": 5,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          },
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ],
+        "deletable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          },
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ]
+      }
+    },
+    {
+      "user": {
+        "id": 2,
+        "email": "operador@mylokok.com",
+        "name": "Operador",
+        "role": "operator",
+        "allowedCountries": [
+          "US"
+        ]
+      },
+      "summary": {
+        "editable": 0,
+        "deletable": 0,
+        "byCountry": {
+          "unknown": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [],
+        "deletable": []
+      }
+    },
+    {
+      "user": {
+        "id": 3,
+        "email": "yeseikabeitia@mylokok.com",
+        "name": "Yeseika Beitia",
+        "role": "manager",
+        "allowedCountries": [
+          "US"
+        ]
+      },
+      "summary": {
+        "editable": 1,
+        "deletable": 1,
+        "byCountry": {
+          "unknown": {
+            "editable": 1,
+            "deletable": 1,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          }
+        ],
+        "deletable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          }
+        ]
+      }
+    },
+    {
+      "user": {
+        "id": 4,
+        "email": "ignaciocortez@mylokok.com",
+        "name": "Nacho",
+        "role": "manager",
+        "allowedCountries": [
+          "US"
+        ]
+      },
+      "summary": {
+        "editable": 4,
+        "deletable": 4,
+        "byCountry": {
+          "unknown": {
+            "editable": 4,
+            "deletable": 4,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ],
+        "deletable": [
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ]
+      }
+    },
+    {
+      "user": {
+        "id": 5,
+        "email": "hubert@mylokok.com",
+        "name": "Hubert",
+        "role": "admin",
+        "allowedCountries": [
+          "US",
+          "CA",
+          "MX"
+        ]
+      },
+      "summary": {
+        "editable": 5,
+        "deletable": 5,
+        "byCountry": {
+          "unknown": {
+            "editable": 5,
+            "deletable": 5,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          },
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ],
+        "deletable": [
+          {
+            "id": "1761332418883",
+            "name": "teste2",
+            "country": "unknown"
+          },
+          {
+            "id": "1761334484057",
+            "name": "teste3",
+            "country": "unknown"
+          },
+          {
+            "id": "1761335325075",
+            "name": "teste4q",
+            "country": "unknown"
+          },
+          {
+            "id": "1761336018202",
+            "name": "teste5",
+            "country": "unknown"
+          },
+          {
+            "id": "1761667914154",
+            "name": "teste",
+            "country": "unknown"
+          }
+        ]
+      }
+    },
+    {
+      "user": {
+        "id": 7,
+        "email": "marcelogalvis@mylokok.com",
+        "name": "Marcelo",
+        "role": "manager",
+        "allowedCountries": [
+          "US",
+          "CA"
+        ]
+      },
+      "summary": {
+        "editable": 0,
+        "deletable": 0,
+        "byCountry": {
+          "unknown": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [],
+        "deletable": []
+      }
+    },
+    {
+      "user": {
+        "id": 8,
+        "email": "jeisonanteliz@mylokok.com",
+        "name": "Jeison",
+        "role": "manager",
+        "allowedCountries": [
+          "US"
+        ]
+      },
+      "summary": {
+        "editable": 0,
+        "deletable": 0,
+        "byCountry": {
+          "unknown": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 5
+          },
+          "US": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "CA": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          },
+          "MX": {
+            "editable": 0,
+            "deletable": 0,
+            "total": 0
+          }
+        }
+      },
+      "records": {
+        "editable": [],
+        "deletable": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2025-12-13T02:27:30.541Z",
+  "totalUS": 1007,
+  "mappedTotals": 760,
+  "mappedUsers": [
+    {
+      "email": "ignaciocortez@mylokok.com",
+      "userId": 367,
+      "userName": "Nacho",
+      "count": 423,
+      "managerSamples": [
+        "Nacho"
+      ]
+    },
+    {
+      "email": "hubert@mylokok.com",
+      "userId": 369,
+      "userName": "Hubert",
+      "count": 315,
+      "managerSamples": [
+        "Hubert"
+      ]
+    },
+    {
+      "email": "jeisonanteliz@mylokok.com",
+      "userId": 373,
+      "userName": "Jeison",
+      "count": 15,
+      "managerSamples": [
+        "Jeison"
+      ]
+    },
+    {
+      "email": "marcelogalvis@mylokok.com",
+      "userId": 371,
+      "userName": "Marcelo",
+      "count": 6,
+      "managerSamples": [
+        "Marcelo",
+        "marcelogalvis@mylokok.com"
+      ]
+    },
+    {
+      "email": "admin@mylokok.com",
+      "userId": 356,
+      "userName": "Admin",
+      "count": 1,
+      "managerSamples": [
+        "Admin"
+      ]
+    }
+  ],
+  "unmappedManagers": [
+    {
+      "key": "gabriel",
+      "count": 247,
+      "sample": "Gabriel"
+    }
+  ]
+}

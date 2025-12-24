@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { DbUserRepository } = require('../models/UserDbRepository');
 
 // Heuristics to match manager by name/email on a supplier record
 function matchesManager(record, manager) {
@@ -82,28 +83,24 @@ function loadLocalSuppliers() {
   return Array.from(byId.values());
 }
 
-function loadUsers() {
-  const usersPath = path.join(__dirname, '..', 'data', 'users.json');
-  if (!fs.existsSync(usersPath)) {
-    return [];
-  }
+async function loadManagersFromDb() {
   try {
-    const raw = fs.readFileSync(usersPath, 'utf8');
-    const list = JSON.parse(raw);
-    return Array.isArray(list) ? list : list.users || [];
+    const repo = new DbUserRepository();
+    const marcelo = await repo.findByEmailAsync('marcelogalvis@mylokok.com');
+    const jeison = await repo.findByEmailAsync('jeisonanteliz@mylokok.com');
+    return [marcelo, jeison].filter(Boolean);
   } catch (err) {
-    console.error('Erro ao carregar users.json:', err.message);
+    console.error('Erro ao carregar gerentes do banco:', err?.message || err);
     return [];
   }
 }
 
 async function main() {
-  const users = loadUsers();
-  const marcelo = users.find((u) => (u.email || '').toLowerCase() === 'marcelogalvis@mylokok.com');
-  const jeison = users.find((u) => (u.email || '').toLowerCase() === 'jeisonanteliz@mylokok.com');
-
+  const managers = await loadManagersFromDb();
+  const marcelo = managers.find((u) => (u.email || '').toLowerCase() === 'marcelogalvis@mylokok.com');
+  const jeison = managers.find((u) => (u.email || '').toLowerCase() === 'jeisonanteliz@mylokok.com');
   if (!marcelo || !jeison) {
-    console.log('Nao encontrei Marcelo e/ou Jeison em users.json.');
+    console.log('Nao encontrei Marcelo e/ou Jeison no banco de dados.');
   } else {
     console.log('Gerentes encontrados:', {
       marcelo: { id: marcelo.id, email: marcelo.email, name: marcelo.name },
@@ -130,13 +127,13 @@ async function main() {
     console.log(`Total combinados localmente: ${records.length} registros.`);
   }
 
-  const managers = [marcelo, jeison].filter(Boolean);
-  if (managers.length === 0) {
+  const managersArr = [marcelo, jeison].filter(Boolean);
+  if (managersArr.length === 0) {
     console.log('Sem gerentes para validar.');
     process.exit(0);
   }
 
-  const counts = countByManager(records, managers);
+  const counts = countByManager(records, managersArr);
   console.log('Contagens por gerente:', counts);
 
   const expected = { 'marcelogalvis@mylokok.com': 20, 'jeisonanteliz@mylokok.com': 8 };

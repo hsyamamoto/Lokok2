@@ -14,24 +14,14 @@ O sistema LOKOK já está preparado para deploy no Railway com as seguintes conf
 - ✅ `.gitignore` configurado
 - ✅ Dados Excel organizados na pasta `data/`
 
-## 💾 Persistência de Usuários (Railway)
+## 💾 Usuários no Banco (Railway)
 
-Para evitar perda de senhas e permissões a cada deploy, configure armazenamento persistente para `users.json`:
+Os usuários (login, senha, função, países permitidos) são persistidos exclusivamente no PostgreSQL.
 
-- Crie um Volume no Railway e monte em `/data` (Service → Storage/Volumes → Add Volume → Mount Path `/data`).
-- Defina a variável de ambiente `DATA_DIR=/data` no serviço.
 - Defina `NODE_ENV=production`.
-- (Opcional) Evite seed de usuários padrão em produção:
-  - Não defina `ALLOW_DEFAULT_USERS_SEED` (ou defina como `false`).
-  - Configure um admin via variáveis de ambiente para garantir acesso:
-    - `SEED_ADMIN_EMAIL=<email>`
-    - `SEED_ADMIN_PASSWORD=<senha>`
-    - `SEED_ADMIN_NAME=<nome>` (opcional)
-    - `SEED_ADMIN_ALLOWED_COUNTRIES=US,CA,MX` (opcional)
-
-Com essas configurações, se `users.json` não existir, o app criará o arquivo no Volume sem semear usuários de teste. Se as variáveis `SEED_ADMIN_*` estiverem definidas, um único admin será criado automaticamente.
-
-Endpoint de diagnóstico: `GET /health` — verifique `usersFilePath` (deve apontar para `/data/users.json`) e `roleCounts`.
+- Adicione um serviço PostgreSQL no Railway (Database → PostgreSQL).
+- Garanta que `DATABASE_URL` esteja configurada no serviço.
+- Para inicialização de senhas via ambiente, use as variáveis `FIX_PWD_*` (aplicadas no DB na subida).
 
 ## 🔧 Próximos Passos
 
@@ -245,7 +235,7 @@ O servidor cria abas quando faltam (no cache local). Para escrita no Google Driv
 
 ### Passos de Validação
 
-1. Defina `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX` e garanta que usuários admin possuam `allowedCountries` coerentes no `users.json`.
+1. Defina `DEFAULT_ADMIN_ALLOWED_COUNTRIES=US,CA,MX`.
 2. Suba o servidor (`NODE_ENV=production`). Se `GOOGLE_DRIVE_FILE_ID` não estiver configurado, usará `EXCEL_PATH` local.
 3. Faça login como admin, troque entre `US`, `CA` e `MX` em `/switch-country` e valide que o dashboard e a busca refletem dados da aba/país correto.
 4. Caso utilize Google Drive, valide o download do Excel e a leitura das abas país.

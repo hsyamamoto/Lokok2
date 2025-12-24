@@ -2,16 +2,16 @@ const express = require('express');
 const cookieSession = require('cookie-session');
 const cookieParser = require('cookie-parser');
 const path = require('path');
-const XLSX = require('xlsx');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { User, UserRepository } = require('./models/User');
-const { pool, initializeDatabase, getJsonSuppliers, insertJsonSupplier, migrateExcelToJson, deduplicateSuppliersJson, updateJsonSupplier, createJsonTable } = require('./database');
-const GoogleDriveService = require('./googleDriveService');
+const { User } = require('./models/User');
+const { DbUserRepository } = require('./models/UserDbRepository');
+const { pool, initializeDatabase, getJsonSuppliers, insertJsonSupplier, deduplicateSuppliersJson, updateJsonSupplier, createJsonTable } = require('./database');
 const http = require('http');
 const https = require('https');
 const axios = require('axios');
+const XLSX = require('xlsx');
 
 const app = express();
 try { fs.mkdirSync('./logs', { recursive: true }); } catch {}
@@ -19,11 +19,22 @@ const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const REQUIRE_DB = (process.env.REQUIRE_DB === '1' || String(process.env.REQUIRE_DB || '').toLowerCase() === 'true');
 
+// Bloqueio de execução em localhost nesta workspace
+const isRailwayEnv = Boolean(
+    process.env.RAILWAY_STATIC_URL ||
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_PROJECT_ID
+);
+const DISABLE_LOCAL = process.env.DISABLE_LOCAL ?? '1';
+if (DISABLE_LOCAL === '1' && !isRailwayEnv) {
+    console.error('[Startup blocked] Localhost desabilitado neste workspace. Use o deploy (Railway).');
+    process.exit(1);
+}
+
 function isDbEnabledForWrites() {
     const isProd = NODE_ENV === 'production';
-    const forceLocal = !isProd && process.env.FORCE_LOCAL_EXCEL === '1';
     const dbConfigured = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-    return dbConfigured && (!forceLocal || isProd);
+    return dbConfigured;
 }
 
 // Configuração do middleware
@@ -81,6 +92,54 @@ console.log('🔧 [PRODUCTION DEBUG] Configuração de sessão:', {
 
 // Servir arquivos estáticos
 app.use(express.static('public'));
+
+// Evitar cache para páginas HTML em produção
+app.use((req, res, next) => {
+    const accept = String(req.headers.accept || '').toLowerCase();
+    if (accept.includes('text/html')) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+    next();
+});
+
+// Fix de senhas controlado por ENV (aplica no banco de dados)
+// Ao iniciar o servidor, se variáveis FIX_PWD_* estiverem definidas, atualiza a senha
+// dos usuários-alvo diretamente no banco para consistência entre deploys.
+async function applyEnvPasswordFixes() {
+    // Permitir desabilitar por flag de ambiente
+    if (String(process.env.DISABLE_ENV_PASSWORD_FIXES || '').toLowerCase() === 'true') {
+        console.log('[PASSWORD FIX] Desabilitado por DISABLE_ENV_PASSWORD_FIXES=true');
+        return;
+    }
+    try {
+        const fixes = [
+            { email: 'ignaciocortez@mylokok.com', env: (process.env.FIX_PWD_IGNACIO || process.env.FIX_PWD_NACHO) },
+            { email: 'jeisonanteliz@mylokok.com', env: process.env.FIX_PWD_JEISON },
+            { email: 'marcelogalvis@mylokok.com', env: process.env.FIX_PWD_MARCELO }
+        ];
+        const applied = [];
+        for (const fix of fixes) {
+            const newPwd = String(fix.env || '').trim();
+            if (!newPwd) continue;
+            const u = await userRepository.findByEmailAsync(fix.email);
+            if (!u) {
+                console.warn(`[PASSWORD FIX] Usuário não encontrado: ${fix.email}`);
+                continue;
+            }
+            await userRepository.updatePasswordByEmailAsync(fix.email, newPwd);
+            applied.push(fix.email);
+        }
+        if (applied.length > 0) {
+            console.log(`[PASSWORD FIX] Aplicado para: ${applied.join(', ')}`);
+        } else {
+            console.log('[PASSWORD FIX] Nenhuma variável FIX_PWD_* definida. Sem alterações.');
+        }
+    } catch (e) {
+        console.error('[PASSWORD FIX] Erro ao aplicar fixes de senha:', e?.message || e);
+    }
+}
 
 // Healthcheck simples (informativo). O health detalhado está mais abaixo em '/health'.
 app.get('/health-simple', (req, res) => {
@@ -179,12 +238,22 @@ app.get('/version', (req, res) => {
         const pkg = require(path.join(__dirname, 'package.json'));
         version = pkg.version || version;
     } catch (e) {}
+    let viewsDir = app.get('views');
+    let searchHasBadge = null;
+    try {
+        const fs = require('fs');
+        const searchContent = fs.readFileSync(path.join(viewsDir, 'search.ejs'), 'utf8');
+        searchHasBadge = searchContent.includes('v2025-12-15');
+    } catch (e) {
+        searchHasBadge = false;
+    }
     res.json({
         version,
         buildTime: BUILD_TIME,
         nodeEnv: process.env.NODE_ENV || 'development',
         serverDir: __dirname,
-        viewsDir: app.get('views')
+        viewsDir,
+        searchHasBadge
     });
 });
 
@@ -217,42 +286,12 @@ app.get('/runtime', (req, res) => {
     }
 });
 
-// Rota de debug para inspecionar qual Excel está sendo usado e contagem por aba
-app.get('/debug/excel', (req, res) => {
-    try {
-        const excelPath = process.env.EXCEL_PATH || '';
-        const exists = excelPath && fs.existsSync(excelPath);
-        const info = {
-            excelPath,
-            exists,
-            forceLocalExcel: process.env.FORCE_LOCAL_EXCEL,
-            googleDriveFileId: process.env.GOOGLE_DRIVE_FILE_ID ? 'SET' : 'EMPTY',
-        };
-        if (exists) {
-            const wb = XLSX.readFile(excelPath, { sheetStubs: true });
-            info.sheets = wb.SheetNames;
-            const counts = {};
-            for (const name of wb.SheetNames) {
-                try {
-                    const ws = wb.Sheets[name];
-                    const rows = XLSX.utils.sheet_to_json(ws);
-                    counts[name] = rows.length;
-                } catch (e) {
-                    counts[name] = `error: ${e?.message || String(e)}`;
-                }
-            }
-            info.counts = counts;
-        }
-        res.json(info);
-    } catch (e) {
-        res.status(500).json({ error: e?.message || String(e) });
-    }
-});
+// (Removido) Rota de debug de Excel local — o projeto não usa mais EXCEL_PATH
 
 // Diagnóstico de usuários e persistência (admin-only)
-app.get('/debug/users', requireAuth, requireAdmin, (req, res) => {
+app.get('/debug/users', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const users = userRepository.findAll();
+        const users = await userRepository.findAllAsync();
         const roleCounts = users.reduce((acc, u) => {
             const r = (u.role || '').toLowerCase();
             acc[r] = (acc[r] || 0) + 1;
@@ -264,7 +303,6 @@ app.get('/debug/users', requireAuth, requireAdmin, (req, res) => {
                 NODE_ENV: process.env.NODE_ENV || null,
                 DATA_DIR: process.env.DATA_DIR || null
             },
-            usersFilePath: userRepository.usersFilePath,
             usersCount: users.length,
             roleCounts,
             users: users.map(u => ({
@@ -282,60 +320,9 @@ app.get('/debug/users', requireAuth, requireAdmin, (req, res) => {
     }
 });
 
-// Diagnóstico público do Google Drive/Excel ativo
-app.get('/diagnose/drive', async (req, res) => {
-    try {
-        const info = {
-            NODE_ENV: process.env.NODE_ENV,
-            GOOGLE_DRIVE_FILE_ID_SET: !!process.env.GOOGLE_DRIVE_FILE_ID,
-            FORCE_LOCAL_EXCEL: process.env.FORCE_LOCAL_EXCEL,
-        };
+// (Removido) Debug de arquivo local de usuários — o sistema usa apenas banco de dados
 
-        let source = null;
-        let sheetNames = [];
-        let count = null;
-        let firstRow = null;
-
-        if (googleDriveService && process.env.GOOGLE_DRIVE_FILE_ID) {
-            source = 'googleDrive';
-            const spreadsheetPath = await googleDriveService.getSpreadsheetPath();
-            info.spreadsheetPath = spreadsheetPath;
-            const workbook = XLSX.readFile(spreadsheetPath);
-            sheetNames = workbook.SheetNames || [];
-
-            let rows = [];
-            const preferred = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'].filter(n => sheetNames.includes(n));
-            if (preferred.length > 0) {
-                for (const name of preferred) {
-                    const ws = workbook.Sheets[name];
-                    const part = ws ? XLSX.utils.sheet_to_json(ws) : [];
-                    rows = rows.concat(part);
-                }
-            } else if (sheetNames.length > 0) {
-                const ws = workbook.Sheets[sheetNames[0]];
-                rows = ws ? XLSX.utils.sheet_to_json(ws) : [];
-            }
-
-            count = rows.length;
-            firstRow = rows[0] || null;
-        } else if (EXCEL_PATH) {
-            source = 'localExcel';
-            const workbook = XLSX.readFile(EXCEL_PATH);
-            sheetNames = workbook.SheetNames || [];
-            const ws = workbook.Sheets['Wholesale LOKOK'] || workbook.Sheets[sheetNames[0]];
-            const rows = ws ? XLSX.utils.sheet_to_json(ws) : [];
-            count = rows.length;
-            firstRow = rows[0] || null;
-            info.excelPath = EXCEL_PATH;
-        } else {
-            source = 'none';
-        }
-
-        res.json({ source, sheetNames, count, firstRow, info });
-    } catch (e) {
-        res.status(500).json({ error: e?.message || String(e) });
-    }
-});
+// (Removido) Diagnóstico de Google Drive/Excel — sistema usa apenas banco
 
 // Endpoint administrativo seguro para migração CA→Marcelo diretamente pelo HTTP
 // Uso:
@@ -457,138 +444,310 @@ app.get('/admin/migrate/assign-marcelo-ca', async (req, res) => {
     }
 });
 
+// Middleware simples para validar token admin via ENV
+function requireAdminApiToken(req, res, next) {
+    const token = req.query.token || req.headers['x-admin-token'];
+    const expected = process.env.ADMIN_MIGRATE_TOKEN;
+    if (!expected) {
+        return res.status(400).json({ error: 'ADMIN_MIGRATE_TOKEN não configurado no ambiente.' });
+    }
+    if (!token || token !== expected) {
+        return res.status(401).json({ error: 'Token inválido ou ausente.' });
+    }
+    next();
+}
+
+// Migração geral: atribuir Marcelo em qualquer registro que o mencione (Responsable/Manager/Buyer/email)
+// Uso:
+// - Dry-run:  POST /admin/migrate/assign-marcelo?apply=0&force=0
+// - Aplicar:  POST /admin/migrate/assign-marcelo?apply=1&force=0
+// - Forçar sobrescrever Created_By_*: adicionar &force=1
+app.post('/admin/migrate/assign-marcelo', requireAdminApiToken, async (req, res) => {
+    try {
+        if (!isDbEnabledForWrites()) {
+            return res.status(400).json({ error: 'Banco de dados não está habilitado para escrita neste ambiente.' });
+        }
+
+        const apply = String(req.query.apply || req.body?.apply || '0') === '1' || String(req.query.apply || req.body?.apply || '').toLowerCase() === 'true';
+        const force = String(req.query.force || req.body?.force || '0') === '1' || String(req.query.force || req.body?.force || '').toLowerCase() === 'true';
+
+        const marceloUser = await userRepository.findByEmailAsync('marcelogalvis@mylokok.com');
+        if (!marceloUser) {
+            return res.status(404).json({ error: 'Usuário Marcelo não encontrado no banco de dados.' });
+        }
+
+        // Helpers locais
+        const ensureResponsable = (rec, personName) => {
+            const managerRaw = ((rec.Responsable || rec.Manager || rec.Buyer || '') + '').trim();
+            const responsaveis = managerRaw ? managerRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const hasPerson = responsaveis.some(r => String(r || '').trim().toLowerCase() === String(personName || '').trim().toLowerCase());
+            if (!hasPerson) responsaveis.push(personName);
+            rec.Responsable = responsaveis.join(', ');
+        };
+        const setCreatedBy = (rec, user, forceSet) => {
+            const idOk = rec.Created_By_User_ID && String(rec.Created_By_User_ID).trim() === String(user.id).trim();
+            const nameOk = rec.Created_By_User_Name && String(rec.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+            const emailOk = rec.Created_By_User_Email && String(rec.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+            if (forceSet || !(idOk || nameOk || emailOk)) {
+                rec.Created_By_User_ID = user.id;
+                rec.Created_By_User_Name = user.name || (String(user.email).split('@')[0]);
+                rec.Created_By_User_Email = user.email;
+                if (!rec.Created_At) rec.Created_At = new Date().toISOString();
+                return true;
+            }
+            return false;
+        };
+
+        const { rows } = await pool.query(`SELECT id, data FROM suppliers_json`);
+        let examined = 0;
+        let updated = 0;
+        let updatedResponsable = 0;
+        let updatedCreated = 0;
+
+        for (const row of rows) {
+            examined++;
+            const rec = { ...(row.data || {}) };
+            const mentionSource = extractManagerLikeValue(rec);
+            const mentionsMarcelo = isUserMentionedIn(mentionSource, marceloUser);
+            if (!mentionsMarcelo) continue;
+
+            const before = JSON.stringify(rec);
+            const prevResp = rec.Responsable || rec.Manager || rec.Buyer || '';
+            ensureResponsable(rec, marceloUser.name);
+            if ((rec.Responsable || '') !== (prevResp || '')) {
+                updatedResponsable++;
+            }
+            const changedCreated = setCreatedBy(rec, marceloUser, force);
+            if (changedCreated) updatedCreated++;
+            const after = JSON.stringify(rec);
+            const changed = before !== after;
+
+            if (apply && changed) {
+                updated++;
+                await pool.query(
+                    `UPDATE suppliers_json
+                     SET data = $2, created_by_user_id = $3, created_by_user_name = $4, updated_at = NOW()
+                     WHERE id = $1`,
+                    [row.id, rec, marceloUser.id, marceloUser.name]
+                );
+            }
+        }
+
+        return res.json({
+            mode: apply ? 'apply' : 'dry-run',
+            examined,
+            updated,
+            updatedResponsable,
+            updatedCreated
+        });
+    } catch (e) {
+        console.error('Erro na migração HTTP geral → Marcelo:', e);
+        return res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Correção administrativa: substituir datas indevidas (ex.: "2025-12-04") por um nome (ex.: "Marcelo")
+// nos campos Manager/Buyer/Responsable, opcionalmente limitado por país.
+// Uso:
+// - Dry-run:  GET /admin/fix/manager-date?token=YOUR_TOKEN&date=2025-12-04&name=Marcelo&country=CA
+// - Aplicar:  GET /admin/fix/manager-date?token=YOUR_TOKEN&date=2025-12-04&name=Marcelo&country=CA&apply=1
+app.get('/admin/fix/manager-date', requireAdminApiToken, async (req, res) => {
+    try {
+        if (!isDbEnabledForWrites()) {
+            return res.status(400).json({ error: 'Banco de dados não está habilitado para escrita neste ambiente.' });
+        }
+
+        const dateStr = String(req.query.date || '2025-12-04');
+        const name = String(req.query.name || 'Marcelo');
+        const country = (req.query.country ? String(req.query.country).toUpperCase() : '').trim();
+        const apply = String(req.query.apply || '').toLowerCase();
+        const doApply = apply === '1' || apply === 'true';
+
+        const like = `%${dateStr}%`;
+        let sql = `
+            SELECT id, country, data
+            FROM suppliers_json
+            WHERE (
+              (data->>'Manager') ILIKE $1 OR
+              (data->>'Buyer') ILIKE $1 OR
+              (data->>'Responsable') ILIKE $1
+            )`;
+        const params = [like];
+        if (country) { sql += ` AND (country = $2)`; params.push(country); }
+
+        const { rows } = await pool.query(sql, params);
+
+        // Função util para identificar formatos comuns da mesma data
+        function isDateLike(value) {
+            if (!value) return false;
+            const s = String(value).trim();
+            if (!s) return false;
+            if (s === dateStr || s.includes(dateStr)) return true;
+            const variants = ['04/12/2025','12/04/2025','Dec 04 2025','04 Dec 2025','2025/12/04','2025-12-04'];
+            return variants.some(v => s.includes(v));
+        }
+
+        if (!doApply) {
+            return res.json({
+                mode: 'dry-run',
+                checked: rows.length,
+                to_fix_ids: rows.map(r => r.id),
+                country: country || null,
+                date: dateStr,
+                name
+            });
+        }
+
+        let updated = 0;
+        const affected = [];
+        for (const row of rows) {
+            const data = row.data;
+            const records = Array.isArray(data) ? data : [data];
+            let changed = false;
+            const fixed = records.map(rec => {
+                const r = { ...rec };
+                if (isDateLike(r.Manager)) { r.Manager = name; changed = true; }
+                if (isDateLike(r.Buyer)) { r.Buyer = name; changed = true; }
+                if (isDateLike(r.Responsable)) { r.Responsable = name; changed = true; }
+                return r;
+            });
+            if (!changed) continue;
+            const payload = Array.isArray(data) ? fixed : fixed[0];
+            await pool.query(`UPDATE suppliers_json SET data = $1, updated_at = NOW() WHERE id = $2`, [payload, row.id]);
+            updated++;
+            affected.push(row.id);
+        }
+
+        const { rows: remainingRows } = await pool.query(sql, params);
+        return res.json({
+            mode: 'apply',
+            checked: rows.length,
+            updated,
+            affected,
+            remaining: remainingRows.map(r => r.id),
+            country: country || null,
+            date: dateStr,
+            name
+        });
+    } catch (e) {
+        console.error('Erro em /admin/fix/manager-date:', e);
+        return res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Alias em GET para facilitar execução via navegador/curl simples
+// Uso:
+// - Dry-run:  GET /admin/migrate/assign-marcelo?token=...&apply=0&force=0
+// - Aplicar:  GET /admin/migrate/assign-marcelo?token=...&apply=1&force=1
+app.get('/admin/migrate/assign-marcelo', requireAdminApiToken, async (req, res) => {
+    try {
+        if (!isDbEnabledForWrites()) {
+            return res.status(400).json({ error: 'Banco de dados não está habilitado para escrita neste ambiente.' });
+        }
+
+        const apply = String(req.query.apply || '0') === '1' || String(req.query.apply || '').toLowerCase() === 'true';
+        const force = String(req.query.force || '0') === '1' || String(req.query.force || '').toLowerCase() === 'true';
+
+        const marceloUser = await userRepository.findByEmailAsync('marcelogalvis@mylokok.com');
+        if (!marceloUser) {
+            return res.status(404).json({ error: 'Usuário Marcelo não encontrado no banco de dados.' });
+        }
+
+        const ensureResponsable = (rec, personName) => {
+            const managerRaw = ((rec.Responsable || rec.Manager || rec.Buyer || '') + '').trim();
+            const responsaveis = managerRaw ? managerRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const hasPerson = responsaveis.some(r => String(r || '').trim().toLowerCase() === String(personName || '').trim().toLowerCase());
+            if (!hasPerson) responsaveis.push(personName);
+            rec.Responsable = responsaveis.join(', ');
+        };
+        const setCreatedBy = (rec, user, forceSet) => {
+            const idOk = rec.Created_By_User_ID && String(rec.Created_By_User_ID).trim() === String(user.id).trim();
+            const nameOk = rec.Created_By_User_Name && String(rec.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+            const emailOk = rec.Created_By_User_Email && String(rec.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+            if (forceSet || !(idOk || nameOk || emailOk)) {
+                rec.Created_By_User_ID = user.id;
+                rec.Created_By_User_Name = user.name || (String(user.email).split('@')[0]);
+                rec.Created_By_User_Email = user.email;
+                if (!rec.Created_At) rec.Created_At = new Date().toISOString();
+                return true;
+            }
+            return false;
+        };
+
+        const { rows } = await pool.query(`SELECT id, data FROM suppliers_json`);
+        let examined = 0;
+        let updated = 0;
+        let updatedResponsable = 0;
+        let updatedCreated = 0;
+
+        for (const row of rows) {
+            examined++;
+            const rec = { ...(row.data || {}) };
+            const mentionSource = extractManagerLikeValue(rec);
+            const mentionsMarcelo = isUserMentionedIn(mentionSource, marceloUser);
+            if (!mentionsMarcelo) continue;
+
+            const before = JSON.stringify(rec);
+            const prevResp = rec.Responsable || rec.Manager || rec.Buyer || '';
+            ensureResponsable(rec, marceloUser.name);
+            if ((rec.Responsable || '') !== (prevResp || '')) {
+                updatedResponsable++;
+            }
+            const changedCreated = setCreatedBy(rec, marceloUser, force);
+            if (changedCreated) updatedCreated++;
+            const after = JSON.stringify(rec);
+            const changed = before !== after;
+
+            if (apply && changed) {
+                updated++;
+                await pool.query(
+                    `UPDATE suppliers_json
+                     SET data = $2, created_by_user_id = $3, created_by_user_name = $4, updated_at = NOW()
+                     WHERE id = $1`,
+                    [row.id, rec, marceloUser.id, marceloUser.name]
+                );
+            }
+        }
+
+        return res.json({
+            mode: apply ? 'apply' : 'dry-run',
+            examined,
+            updated,
+            updatedResponsable,
+            updatedCreated
+        });
+    } catch (e) {
+        console.error('Erro na migração HTTP geral (GET) → Marcelo:', e);
+        return res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Reset de senha de um usuário via token admin
+// Uso: POST /admin/users/reset-password?token=...  body: { email, password }
+app.post('/admin/users/reset-password', requireAdminApiToken, async (req, res) => {
+    try {
+        const { email, password } = req.body || {};
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'email e password são obrigatórios' });
+        }
+        let user = await userRepository.findByEmailAsync(email);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Usuário não encontrado' });
+        }
+        await userRepository.updatePasswordByEmailAsync(email, password);
+        return res.json({ success: true, message: 'Senha atualizada', user: { id: user.id, email: user.email } });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e?.message || String(e) });
+    }
+});
+
 // Configuração do EJS como template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+// Auditoria
+const audit = require('./audit');
 
-// Configuração da planilha (local ou Google Drive)
-let EXCEL_PATH;
-let googleDriveService;
-
-if (NODE_ENV === 'production' && process.env.GOOGLE_DRIVE_FILE_ID) {
-    // Em produção, usar Google Drive
-    console.log('🔧 [PRODUCTION DEBUG] Configurando Google Drive para produção...');
-    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_DRIVE_FILE_ID:', process.env.GOOGLE_DRIVE_FILE_ID ? 'SET' : 'NOT SET');
-    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_SERVICE_ACCOUNT_EMAIL:', process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ? 'SET' : 'NOT SET');
-    console.log('🔧 [PRODUCTION DEBUG] GOOGLE_PRIVATE_KEY:', process.env.GOOGLE_PRIVATE_KEY ? 'SET' : 'NOT SET');
-    try {
-        googleDriveService = new GoogleDriveService();
-        console.log('✅ [PRODUCTION DEBUG] Google Drive Service inicializado');
-        console.log('📊 Configurado para usar Google Drive em produção');
-    } catch (error) {
-        console.error('❌ [PRODUCTION DEBUG] Erro ao inicializar Google Drive Service:', error);
-        console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
-    }
-} else {
-    // Resolver dinamicamente o caminho do Excel local
-    // Suporte a planilha pública do Google: baixar para cached_spreadsheet.xlsx quando EXCEL_DOWNLOAD_URL estiver definido
-    try {
-        const publicExcelUrl = process.env.EXCEL_DOWNLOAD_URL;
-        if (publicExcelUrl) {
-            const dataDir = path.join(__dirname, 'data');
-            try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
-            const cachedPath = path.join(dataDir, 'cached_spreadsheet.xlsx');
-            console.log('🔧 [PRODUCTION DEBUG] EXCEL_DOWNLOAD_URL detectado. Baixando planilha pública...');
-            axios.get(publicExcelUrl, { responseType: 'arraybuffer' })
-                .then((resp) => {
-                    try {
-                        fs.writeFileSync(cachedPath, resp.data);
-                        EXCEL_PATH = cachedPath;
-                        console.log('✅ [PRODUCTION DEBUG] Planilha pública baixada em:', cachedPath);
-                    } catch (fileErr) {
-                        console.warn('⚠️ [PRODUCTION DEBUG] Falha ao salvar planilha pública:', fileErr?.message);
-                    }
-                })
-                .catch((err) => {
-                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao baixar planilha pública:', err?.message);
-                });
-        }
-    } catch (e) {
-        console.warn('⚠️ [PRODUCTION DEBUG] Falha inesperada ao iniciar download da planilha pública:', e?.message);
-    }
-
-    const forceLocalExcel = process.env.FORCE_LOCAL_EXCEL === '1' || process.env.FORCE_LOCAL_EXCEL === 'true';
-
-    // Suporte: se EXCEL_PATH for uma URL e FORCE_LOCAL_EXCEL=0, baixar para cache local
-    try {
-        const maybeUrl = process.env.EXCEL_PATH;
-        const isHttp = typeof maybeUrl === 'string' && /^https?:\/\//i.test(maybeUrl);
-        if (!forceLocalExcel && isHttp) {
-            const dataDir = path.join(__dirname, 'data');
-            try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
-            const cachedPath = path.join(dataDir, 'cached_spreadsheet.xlsx');
-            console.log('🔧 [PRODUCTION DEBUG] EXCEL_PATH é URL e FORCE_LOCAL_EXCEL=0. Baixando planilha pública via EXCEL_PATH...');
-            axios.get(maybeUrl, { responseType: 'arraybuffer' })
-                .then((resp) => {
-                    try {
-                        fs.writeFileSync(cachedPath, resp.data);
-                        process.env.EXCEL_PATH = cachedPath;
-                        console.log('✅ [PRODUCTION DEBUG] Planilha (EXCEL_PATH URL) baixada em:', cachedPath);
-                    } catch (fileErr) {
-                        console.warn('⚠️ [PRODUCTION DEBUG] Falha ao salvar cache de EXCEL_PATH:', fileErr?.message);
-                    }
-                })
-                .catch((err) => {
-                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao baixar EXCEL_PATH (URL):', err?.message);
-                });
-        }
-    } catch (e) {
-        console.warn('⚠️ [PRODUCTION DEBUG] Erro ao processar EXCEL_PATH como URL:', e?.message);
-    }
-
-    // Quando FORCE_LOCAL_EXCEL=1, priorizar estritamente EXCEL_PATH para evitar cair em bases antigas
-    let candidates;
-    if (forceLocalExcel) {
-        candidates = [
-            // Primeiro: EXCEL_PATH (obrigatório quando FORCE_LOCAL_EXCEL=1)
-            process.env.EXCEL_PATH,
-            // Depois: planilha oficial (1109) caso EXCEL_PATH não esteja definido
-            path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx'),
-            // Fallback adicional: cached_spreadsheet.xlsx incluído no repositório
-            path.join(__dirname, 'data', 'cached_spreadsheet.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'cached_spreadsheet.xlsx'),
-            // Fallback legado: Wholesale Suppliers and Product Opportunities.xlsx
-            path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'Wholesale Suppliers and Product Opportunities.xlsx')
-        ].filter(Boolean);
-    } else {
-        // Quando não estamos forçando arquivo local, priorize EXCEL_PATH (que pode ser URL baixada para cache)
-        // e o arquivo de cache, depois caia para arquivos oficiais/legados
-        candidates = [
-            process.env.EXCEL_PATH,
-            path.join(__dirname, 'data', 'cached_spreadsheet.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'cached_spreadsheet.xlsx'),
-            path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx'),
-            path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
-            path.join(__dirname, 'Lokok2', 'data', 'Wholesale Suppliers and Product Opportunities.xlsx'),
-        ].filter(Boolean);
-    }
-
-    console.log('📄 [PRODUCTION DEBUG] Candidatos para EXCEL_PATH (na ordem de prioridade):', candidates);
-    for (const p of candidates) {
-        try {
-            if (fs.existsSync(p)) {
-                EXCEL_PATH = p;
-                console.log('✅ [PRODUCTION DEBUG] Selecionado arquivo Excel:', EXCEL_PATH);
-                break;
-            }
-        } catch (e) {
-            // ignora erros de acesso
-        }
-    }
-
-    if (EXCEL_PATH) {
-        console.log('📊 [PRODUCTION DEBUG] Configurado para usar arquivo Excel local:', EXCEL_PATH);
-    } else {
-        if (forceLocalExcel && process.env.EXCEL_PATH) {
-            console.error('❌ [PRODUCTION DEBUG] FORCE_LOCAL_EXCEL=1 mas o arquivo definido em EXCEL_PATH não foi encontrado:', process.env.EXCEL_PATH);
-            console.error('❌ [PRODUCTION DEBUG] Verifique se o arquivo foi incluído no deploy e o caminho está correto.');
-        }
-        console.warn('⚠️ [PRODUCTION DEBUG] Nenhum arquivo Excel encontrado nos caminhos padrão. As buscas retornarão 0 resultados.');
-    }
-}
+// Removida integração com Google Drive — fonte única: banco de dados
 
 // Logs detalhados para produção
 console.log('🚀 [PRODUCTION DEBUG] Iniciando servidor LOKOK2...');
@@ -596,8 +755,116 @@ console.log('🌍 [PRODUCTION DEBUG] NODE_ENV:', process.env.NODE_ENV);
 console.log('📁 [PRODUCTION DEBUG] __dirname:', __dirname);
 console.log('📁 [PRODUCTION DEBUG] process.cwd():', process.cwd());
 
-// Instância do repositório de usuários
-const userRepository = new UserRepository();
+// Instância do repositório de usuários - sempre banco de dados
+const userRepository = new DbUserRepository();
+console.log('👥 [PRODUCTION DEBUG] Fonte de usuários: database');
+// Aplicar fixes de senha via ENV assim que o repositório estiver disponível
+applyEnvPasswordFixes();
+
+// Endpoints internos protegidos por token para facilitar diagnóstico sem Shell
+const INTERNAL_BOOTSTRAP_TOKEN = process.env.INTERNAL_BOOTSTRAP_TOKEN || process.env.BOOTSTRAP_TOKEN || null;
+function hasBootstrapToken(req) {
+    const token = String((req.headers['x-bootstrap-token'] || req.query.token || (req.body && req.body.token) || '')).trim();
+    return !!INTERNAL_BOOTSTRAP_TOKEN && token === INTERNAL_BOOTSTRAP_TOKEN;
+}
+
+// Cria/atualiza usuários simples de teste com senha padrão
+app.post('/internal/bootstrap-test-users', async (req, res) => {
+    if (!hasBootstrapToken(req)) {
+        return res.status(403).json({ success: false, message: 'Token inválido ou não configurado' });
+    }
+    try {
+        const password = 'test12345';
+        const users = [
+            { email: 'qa@mylokok.com', name: 'QA User', role: 'operator', allowedCountries: ['US'] },
+            { email: 'test@mylokok.com', name: 'Test User', role: 'operator', allowedCountries: ['US'] },
+            { email: 'manager@mylokok.com', name: 'Manager User', role: 'manager', allowedCountries: ['US','CA','MX'] },
+        ];
+        const results = [];
+        for (const u of users) {
+            try {
+                const created = await userRepository.createAsync({
+                    email: u.email,
+                    password,
+                    role: u.role,
+                    name: u.name,
+                    allowedCountries: u.allowedCountries
+                });
+                results.push({ ok: true, id: created.id, email: created.email, role: created.role });
+            } catch (e) {
+                results.push({ ok: false, email: u.email, error: e?.message || String(e) });
+            }
+        }
+        return res.json({ success: true, results });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e?.message || String(e) });
+    }
+});
+
+// Verifica senha de um usuário por email ou username
+app.post('/internal/verify-login', async (req, res) => {
+    if (!hasBootstrapToken(req)) {
+        return res.status(403).json({ success: false, message: 'Token inválido ou não configurado' });
+    }
+    try {
+        const { identifier, password } = req.body || {};
+        if (!identifier || !password) {
+            return res.status(400).json({ success: false, message: 'identifier e password são obrigatórios' });
+        }
+        const user = await userRepository.findByEmailOrUsernameAsync(identifier);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Usuário não encontrado' });
+        }
+        const match = await User.comparePassword(password, user.password);
+        return res.json({ success: true, user: { id: user.id, email: user.email, role: user.role }, passwordMatch: !!match });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e?.message || String(e) });
+    }
+});
+
+// Inspeciona colunas, índices e constraints da tabela users
+app.get('/internal/inspect-users-table', async (req, res) => {
+    if (!hasBootstrapToken(req)) {
+        return res.status(403).json({ success: false, message: 'Token inválido ou não configurado' });
+    }
+    try {
+        const columns = await pool.query(`
+          SELECT column_name, data_type, is_nullable
+          FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='users'
+          ORDER BY ordinal_position;
+        `);
+
+        const constraints = await pool.query(`
+          SELECT c.conname AS name, c.contype AS type, pg_get_constraintdef(c.oid) AS definition
+          FROM pg_constraint c
+          JOIN pg_class t ON c.conrelid = t.oid
+          JOIN pg_namespace n ON t.relnamespace = n.oid
+          WHERE n.nspname = 'public' AND t.relname = 'users'
+          ORDER BY c.conname;
+        `);
+
+        const indexes = await pool.query(`
+          SELECT indexname, indexdef
+          FROM pg_indexes
+          WHERE schemaname='public' AND tablename='users'
+          ORDER BY indexname;
+        `);
+
+        const hasEmailUnique = constraints.rows.some(r => /UNIQUE \(email\)/i.test(r.definition)) ||
+          indexes.rows.some(r => /UNIQUE INDEX.*\(email\)/i.test(r.indexdef));
+
+        return res.json({
+            success: true,
+            columns: columns.rows,
+            constraints: constraints.rows,
+            indexes: indexes.rows,
+            checks: { hasEmailUnique }
+        });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e?.message || String(e) });
+    }
+});
 
 // Configuração do multer para upload de arquivos
 const storage = multer.memoryStorage();
@@ -647,6 +914,33 @@ function normalize(s) {
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
+}
+
+// Snapshot da configuração de banco atual
+function getDbInfo() {
+    try {
+        const urlStr = process.env.DATABASE_URL || '';
+        const u = new URL(urlStr);
+        const useDb = String(process.env.USE_DB || '').toLowerCase();
+        const useDbUsers = String(process.env.USE_DB_USERS || '').toLowerCase();
+        return {
+            host: u.hostname || null,
+            port: u.port ? Number(u.port) : null,
+            database: (u.pathname || '').replace(/^\//, '') || null,
+            useDb: useDb === 'true' || useDb === '1',
+            useDbUsers: useDbUsers === 'true' || useDbUsers === '1'
+        };
+    } catch (_) {
+        const useDb = String(process.env.USE_DB || '').toLowerCase();
+        const useDbUsers = String(process.env.USE_DB_USERS || '').toLowerCase();
+        return {
+            host: null,
+            port: null,
+            database: null,
+            useDb: useDb === 'true' || useDb === '1',
+            useDbUsers: useDbUsers === 'true' || useDbUsers === '1'
+        };
+    }
 }
 
 // Helper global para obter um campo de forma robusta (ignora acentos, caixa, espaços e pontuação)
@@ -740,6 +1034,23 @@ function extractManagerLikeValue(rec) {
             if ((val || '').toString().trim().length > 0) return val;
         }
     }
+    // Fallback final: agregar múltiplos campos relacionados para permitir match por menção
+    try {
+        const aggFields = [
+            'Responsable','Manager','Buyer',
+            'Responsable Buyer','Responsible Buyer','Buyer Responsable','Buyer Responsible',
+            'Assigned','Assigned To','Assigned_To','AssignedTo',
+            'Purchase Manager','Purchasing Manager','Purchasing Buyer','Buyer Manager',
+            'Created_By_User_Name','Created_By_User_Email'
+        ];
+        const parts = [];
+        for (const f of aggFields) {
+            const v = getField(obj, [f]);
+            if ((v || '').toString().trim().length > 0) parts.push(String(v));
+        }
+        const combined = parts.join(' | ');
+        if ((combined || '').trim().length > 0) return combined;
+    } catch (_) {}
     return '';
 }
 
@@ -845,7 +1156,7 @@ function inferHeadersFromWorksheet(ws) {
     } catch (_) {}
     // Fallback para conjunto de campos esperado
     return [
-        'Name','Website','CATEGORÍA','Account Request Status','DATE','Responsable',
+        'Name','Website','CATEGORÍA','Type','Account Request Status','DATE','Responsable',
         'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)',
         'Description/Notes','Contact Name','Contact Phone','E-Mail','Address','User','PASSWORD',
         'LLAMAR','PRIO (1 - TOP, 5 - baixo)','Comments','Country','Created_By_User_ID','Created_By_User_Name','Created_At'
@@ -858,6 +1169,9 @@ function normalizeRecordKeys(row) {
     const map = new Map([
         ['Company Name', 'Name'],
         ['Category', 'CATEGORÍA'],
+        ['TYPE', 'Type'],
+        ['type', 'Type'],
+        ['Type ', 'Type'],
         ['Registered User', 'User'],
         ['Registered PASSWORD', 'PASSWORD'],
         ['STATUS', 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'],
@@ -874,11 +1188,11 @@ function normalizeRecordKeys(row) {
 }
 
 // Enriquecimento: tudo que estiver com responsável “Nacho” conta como criado por Ignacio
-function enrichCreatedByForNacho(records) {
+async function enrichCreatedByForNacho(records) {
     try {
         if (!Array.isArray(records) || records.length === 0) return;
         const targetEmail = 'ignaciocortez@mylokok.com';
-        const users = userRepository.findAll ? userRepository.findAll() : [];
+        const users = await userRepository.findAllAsync();
         const nachoUser = users.find(u => String(u.email || '').toLowerCase() === targetEmail)
             || users.find(u => String(u.name || '').toLowerCase() === 'nacho');
         if (!nachoUser) return;
@@ -988,219 +1302,16 @@ function findSheetNameForCountryCaseInsensitive(sheetNames, country) {
     return null;
 }
 
-// Função para ler dados da planilha
-async function readExcelData(selectedCountry) {
-    try {
-        // Tratar seleção especial de "ALL" como todos os países
-        const selectedForSource = (String(selectedCountry || '').toUpperCase() === 'ALL') ? null : selectedCountry;
-        // Prefer database JSONB when enabled
-        const isProd = NODE_ENV === 'production';
-        // Em produção, IGNORAR FORCE_LOCAL_EXCEL para garantir leitura do banco
-        const forceLocal = !isProd && process.env.FORCE_LOCAL_EXCEL === '1';
-        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof getJsonSuppliers === 'function' && (!forceLocal || isProd);
-        if (useDb) {
-            // Sem país específico -> retornar todos
-            if (!selectedForSource) {
-                const rows = await getJsonSuppliers();
-                return rows;
-            }
-            const aliases = getCountryAliases(selectedForSource);
-            const rows = await getJsonSuppliers(Array.isArray(aliases) ? aliases : [selectedForSource]);
-            return rows;
-        }
-        let allData = [];
-        // Determinar aba alvo com a mesma lógica usada em escrita/Google Drive
-        const targetSheet = selectedForSource ? getSheetNameForCountry(selectedForSource) : null;
-        
-        if (NODE_ENV === 'production' && googleDriveService) {
-            // Em produção, usar Google Drive
-            console.log('📥 [PRODUCTION DEBUG] Carregando dados do Google Drive...');
-            try {
-                // Para ALL, passar undefined para ler todas as abas preferidas;
-                // quando há país selecionado, o serviço já lê apenas a aba correta.
-                allData = await googleDriveService.readSpreadsheetData(selectedForSource || undefined);
-                console.log('✅ [PRODUCTION DEBUG] Dados carregados do Google Drive (sem filtro adicional):', allData.length, 'registros');
-            } catch (driveError) {
-                console.error('❌ [PRODUCTION DEBUG] Erro ao carregar do Google Drive:', driveError);
-                console.log('🔄 [PRODUCTION DEBUG] Tentando fallback para arquivo local...');
-                
-                // Fallback para arquivo local se Google Drive falhar
-                if (fs.existsSync(EXCEL_PATH)) {
-                    const workbook = XLSX.readFile(EXCEL_PATH);
-                    // Garantir abas de país (CA/MX) existam mesmo vazias
-                    const ensured = ensureCountrySheets(workbook);
-                    const shouldPersistEnsure = /cached_spreadsheet\.xlsx$/i.test(EXCEL_PATH || '');
-                    if (ensured.changed && shouldPersistEnsure) {
-                        try { XLSX.writeFile(workbook, EXCEL_PATH); } catch (_) {}
-                    }
-                    const sheetNames = workbook.SheetNames || [];
-                    console.log('[PRODUCTION DEBUG] Fallback - Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
-                    
-                    const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'];
-                    const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
-                    
-                    if (selectedForSource) {
-                        const resolved = findSheetNameForCountryCaseInsensitive(sheetNames, selectedForSource) || targetSheet;
-                        if (resolved && sheetNames.includes(resolved)) {
-                            console.log('[PRODUCTION DEBUG] Lendo aba específica para país selecionado (resolvida):', resolved);
-                            const ws = workbook.Sheets[resolved];
-                            const rows = XLSX.utils.sheet_to_json(ws);
-                            allData = allData.concat(rows);
-                        } else if (existingPreferred.length > 0) {
-                            for (const name of existingPreferred) {
-                                const ws = workbook.Sheets[name];
-                                const rows = XLSX.utils.sheet_to_json(ws);
-                                allData = allData.concat(rows);
-                            }
-                        } else {
-                            for (const name of sheetNames) {
-                                try {
-                                    const ws = workbook.Sheets[name];
-                                    const rows = XLSX.utils.sheet_to_json(ws);
-                                    allData = allData.concat(rows);
-                                } catch (e) {
-                                    console.warn('[PRODUCTION DEBUG] Falha ao ler aba:', name, e?.message);
-                                }
-                            }
-                        }
-                    } else if (existingPreferred.length > 0) {
-                        for (const name of existingPreferred) {
-                            const ws = workbook.Sheets[name];
-                            const rows = XLSX.utils.sheet_to_json(ws);
-                            allData = allData.concat(rows);
-                        }
-                    } else {
-                        for (const name of sheetNames) {
-                            try {
-                                const ws = workbook.Sheets[name];
-                                const rows = XLSX.utils.sheet_to_json(ws);
-                                allData = allData.concat(rows);
-                            } catch (e) {
-                                console.warn('[PRODUCTION DEBUG] Falha ao ler aba:', name, e?.message);
-                            }
-                        }
-                    }
-                } else {
-                    console.error('❌ [PRODUCTION DEBUG] Arquivo Excel local não encontrado:', EXCEL_PATH);
-                    throw new Error('Nenhuma fonte de dados disponível');
-                }
-            }
-        } else {
-            // Em desenvolvimento, usar arquivo local
-            if (!fs.existsSync(EXCEL_PATH)) {
-                console.error('❌ [PRODUCTION DEBUG] Arquivo Excel não encontrado:', EXCEL_PATH);
-                throw new Error(`Arquivo Excel não encontrado: ${EXCEL_PATH}`);
-            }
-            
-            const workbook = XLSX.readFile(EXCEL_PATH);
-            // Garantir abas de país (CA/MX) existam mesmo vazias
-            const ensured = ensureCountrySheets(workbook);
-            const shouldPersistEnsure = /cached_spreadsheet\.xlsx$/i.test(EXCEL_PATH || '');
-            if (ensured.changed && shouldPersistEnsure) {
-                try { XLSX.writeFile(workbook, EXCEL_PATH); } catch (_) {}
-            }
-            const sheetNames = workbook.SheetNames || [];
-            console.log('[PRODUCTION DEBUG] Excel carregado:', EXCEL_PATH, 'Sheets:', sheetNames);
-
-            // Preferir abas específicas se existirem; caso contrário, ler todas as abas
-            const preferredSheets = ['Wholesale LOKOK', 'Wholesale CANADA', 'Wholesale MEXICO'];
-            const existingPreferred = preferredSheets.filter(name => sheetNames.includes(name));
-
-            if (selectedForSource) {
-                // Resolver aba por país com tolerância à capitalização
-                const effectiveTarget = findSheetNameForCountryCaseInsensitive(sheetNames, selectedForSource) || getSheetNameForCountry(selectedForSource);
-                if (effectiveTarget && sheetNames.includes(effectiveTarget)) {
-                    const ws = workbook.Sheets[effectiveTarget];
-                    const rows = XLSX.utils.sheet_to_json(ws);
-                    console.log('[PRODUCTION DEBUG] Lendo aba por país (sem filtro por Country):', selectedForSource, '→', effectiveTarget, 'Registros:', rows.length);
-                    // Não aplicar filtro por Country; contar por aba específica
-                    allData = allData.concat(rows);
-                    // Caso Canadá, também incluir outras abas relacionadas (ex.: SEARCHING FILE CANADA)
-                    if (String(selectedForSource).toUpperCase() === 'CA') {
-                        const extraCanadaSheets = ['SEARCHING FILE CANADA'];
-                        for (const extra of extraCanadaSheets) {
-                            if (sheetNames.includes(extra)) {
-                                try {
-                                    const wsExtra = workbook.Sheets[extra];
-                                    const rowsExtra = XLSX.utils.sheet_to_json(wsExtra);
-                                    console.log('[PRODUCTION DEBUG] Lendo aba extra de Canadá:', extra, 'Registros:', rowsExtra.length);
-                                    allData = allData.concat(rowsExtra);
-                                } catch (e) {
-                                    console.warn('[PRODUCTION DEBUG] Falha ao ler aba extra de Canadá:', extra, e?.message);
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    console.warn('[PRODUCTION DEBUG] Aba para país não encontrada, retornando vazio:', selectedForSource, 'targetSheet:', targetSheet);
-                }
-            } else if (!selectedForSource && existingPreferred.length > 0) {
-                // Sem país selecionado (ALL): concatenar abas preferidas SEM filtrar por Country
-                for (const name of existingPreferred) {
-                    const ws = workbook.Sheets[name];
-                    const rows = XLSX.utils.sheet_to_json(ws);
-                    console.log('[PRODUCTION DEBUG] Lendo aba preferida (ALL sem filtro):', name, 'Registros:', rows.length);
-                    allData = allData.concat(rows);
-                }
-            } else {
-                console.warn('[PRODUCTION DEBUG] Nenhuma aba preferida encontrada. Lendo todas as abas do arquivo.');
-                for (const name of sheetNames) {
-                    try {
-                        const ws = workbook.Sheets[name];
-                        const rows = XLSX.utils.sheet_to_json(ws);
-                        console.log('[PRODUCTION DEBUG] Lendo aba:', name, 'Registros:', rows.length);
-                        allData = allData.concat(rows);
-                    } catch (e) {
-                        console.warn('[PRODUCTION DEBUG] Falha ao ler aba:', name, e?.message);
-                    }
-                }
-                console.log('[PRODUCTION DEBUG] Total de registros após ler todas as abas:', allData.length);
-            }
-        }
-        
-        // Normalizar chaves para compatibilidade com a UI
-        const normalizedData = Array.isArray(allData) ? allData.map(normalizeRecordKeys) : [];
-        console.log(`✅ [PRODUCTION DEBUG] Dados carregados: ${normalizedData.length} registros`);
-        if (normalizedData.length > 0) {
-            console.log('[PRODUCTION DEBUG] Primeiro registro (normalizado):', JSON.stringify(normalizedData[0]));
-        }
-        return normalizedData;
-    } catch (error) {
-        console.error('❌ [PRODUCTION DEBUG] Error reading spreadsheet:', error);
-        console.error('❌ [PRODUCTION DEBUG] Stack trace:', error.stack);
-        return [];
+// Fonte única de dados: banco de dados (JSONB)
+async function readDbData(selectedCountry) {
+    const selectedForSource = (String(selectedCountry || '').toUpperCase() === 'ALL') ? null : selectedCountry;
+    if (!selectedForSource) {
+        const rows = await getJsonSuppliers();
+        return rows;
     }
-}
-
-// Função para escrever dados na planilha
-async function writeExcelData(data, selectedCountry) {
-    try {
-        if (NODE_ENV === 'production' && googleDriveService) {
-            // Em produção, salvar no Google Drive
-            console.log('💾 Salvando dados no Google Drive (aba por país)...');
-            await googleDriveService.saveSpreadsheetData(data, selectedCountry);
-        } else {
-            // Em desenvolvimento, salvar no arquivo local
-            const workbook = XLSX.readFile(EXCEL_PATH);
-            const targetSheet = getSheetNameForCountry(selectedCountry);
-            // Garantir que a aba alvo exista
-            const ensured = ensureCountrySheets(workbook);
-            if (ensured.changed) {
-                console.log('🔧 Abas de país garantidas antes de salvar');
-            }
-            const worksheet = XLSX.utils.json_to_sheet(data);
-            workbook.Sheets[targetSheet] = worksheet;
-            if (!workbook.SheetNames.includes(targetSheet)) {
-                workbook.SheetNames.push(targetSheet);
-            }
-            XLSX.writeFile(workbook, EXCEL_PATH);
-        }
-        console.log('✅ Dados salvos com sucesso');
-        return true;
-    } catch (error) {
-        console.error('❌ Erro ao salvar dados:', error);
-        return false;
-    }
+    const aliases = getCountryAliases(selectedForSource);
+    const rows = await getJsonSuppliers(Array.isArray(aliases) ? aliases : [selectedForSource]);
+    return rows;
 }
 
 // Rotas
@@ -1216,15 +1327,34 @@ app.get('/login', (req, res) => {
     res.render('login', { error: null });
 });
 
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
     const { email, password } = req.body;
-    console.log('[PRODUCTION DEBUG] Tentativa de login para:', email);
+    console.log('[PRODUCTION DEBUG] Tentativa de login para (email/username):', email);
     console.log('[PRODUCTION DEBUG] IP do cliente:', req.ip);
     console.log('[PRODUCTION DEBUG] User-Agent:', req.get('User-Agent'));
     console.log('[PRODUCTION DEBUG] Password length:', password?.length);
+    // Auditoria de tentativa
+    try {
+        audit.logAccess('login_attempt', email, req.ip, req.get('User-Agent'));
+    } catch (_) {}
     
-    const user = userRepository.findByEmail(email);
+    let user = null;
+    try {
+        // Aceita email ou username (compatibilidade com bases legadas)
+        if (typeof userRepository.findByEmailOrUsernameAsync === 'function') {
+            user = await userRepository.findByEmailOrUsernameAsync(email);
+        } else {
+            user = await userRepository.findByEmailAsync(email);
+        }
+    } catch (e) {
+        console.warn('[PRODUCTION DEBUG] Falha ao obter usuário para login:', e?.message || e);
+    }
     console.log('[PRODUCTION DEBUG] Usuário encontrado:', user ? { id: user.id, email: user.email, role: user.role } : 'null');
+    // Auditoria de lookup
+    try {
+        const dbInfo = getDbInfo();
+        audit.logActivity('login_lookup', email, 'users', `found=${!!user}; db_host=${dbInfo.host}; db_port=${dbInfo.port}; db_name=${dbInfo.database}; useDb=${dbInfo.useDb}; useDbUsers=${dbInfo.useDbUsers}`, req.ip);
+    } catch (_) {}
     
     if (user && User.comparePassword(password, user.password)) {
         console.log('[PRODUCTION DEBUG] Login bem-sucedido para:', email);
@@ -1239,6 +1369,12 @@ app.post('/login', (req, res) => {
                 ? user.allowedCountries.map(c => String(c).toUpperCase())
                 : (user.role === 'admin' ? ['US', 'CA', 'MX'] : ['US'])
         };
+        // Auditoria de sucesso
+        try {
+            audit.logAccess('login_success', email, req.ip, req.get('User-Agent'));
+            const dbInfo = getDbInfo();
+            audit.logActivity('login_success', email, 'session', `userId=${user.id}; role=${user.role}; allowed=${(req.session.user.allowedCountries||[]).join(',')}; db_host=${dbInfo.host}; db_port=${dbInfo.port}; db_name=${dbInfo.database}`, req.ip);
+        } catch (_) {}
         // Definir país selecionado padrão na sessão
         if (!req.session.selectedCountry) {
             req.session.selectedCountry = (req.session.user.allowedCountries && req.session.user.allowedCountries[0]) ? req.session.user.allowedCountries[0] : 'US';
@@ -1263,6 +1399,12 @@ app.post('/login', (req, res) => {
         console.log('[PRODUCTION DEBUG] Login falhou para:', email);
         console.log('[PRODUCTION DEBUG] Usuário existe:', !!user);
         console.log('[PRODUCTION DEBUG] Senha válida:', user ? User.comparePassword(password, user.password) : false);
+        // Auditoria de falha
+        try {
+            audit.logAccess('login_failure', email, req.ip, req.get('User-Agent'));
+            const dbInfo = getDbInfo();
+            audit.logActivity('login_failure', email, 'session', `userFound=${!!user}; db_host=${dbInfo.host}; db_port=${dbInfo.port}; db_name=${dbInfo.database}`, req.ip);
+        } catch (_) {}
         res.render('login', { error: 'Invalid email or password' });
     }
 });
@@ -1279,6 +1421,34 @@ app.get('/session-debug', (req, res) => {
         sessionUser: req.session?.user || null,
         hasSession: !!req.session,
     });
+});
+
+// Rota admin para inspecionar auditoria de acessos e snapshot de configuração
+app.get('/admin/audit/access', requireAuth, requireRole(['admin']), (req, res) => {
+    try {
+        const access = require('./audit').getAccessLogs(200);
+        const dbInfo = getDbInfo();
+        return res.json({
+            config: dbInfo,
+            access
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
+// Ingestão de logs de UI (cadastro de usuários)
+app.post('/admin/logs/ui', requireAuth, requireRole(['admin']), (req, res) => {
+    try {
+        const { event, ts, page, data } = req.body || {};
+        const actor = req.session?.user?.email || 'unknown';
+        const resource = page || 'users';
+        const details = JSON.stringify({ event, ts, page, data });
+        audit.logActivity('USER_UI_EVENT', actor, resource, details, req.ip);
+        return res.json({ ok: true });
+    } catch (e) {
+        return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
 });
 
 // Debug: país atual na sessão e permissões do usuário
@@ -1312,9 +1482,9 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         
         const allowedCountries = normalizeAllowedCountries(req.session.user?.allowedCountries);
         const selectedCountry = req.session.selectedCountry || (allowedCountries[0] || 'US');
-        const data = await readExcelData(selectedCountry);
+        const data = await readDbData(selectedCountry);
         // Mapear tudo que estiver como “Nacho” para Ignacio como criador
-        enrichCreatedByForNacho(data);
+        await enrichCreatedByForNacho(data);
         console.log('[PRODUCTION DEBUG] Dados carregados:', data.length, 'registros');
     
     // Filtrar dados por usuário (apenas registros que eles criaram ou são responsáveis, exceto admin)
@@ -1484,6 +1654,32 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         .sort((a,b) => b._parsedDate - a._parsedDate)
         .slice(0,5);
 
+    // Alertas de follow-up: 2 semanas após o 3º e-mail enviado
+    const isManager = (req.session.user?.role === 'gerente' || req.session.user?.role === 'manager');
+    let followUpAlerts = [];
+    if (isManager) {
+        const now = new Date();
+        const thresholdMs = 14 * 24 * 60 * 60 * 1000; // 14 dias
+        followUpAlerts = filteredData
+            .map(rec => {
+                const third = rec['Third Email Sent'];
+                if (!third) return null;
+                const d = new Date(third);
+                if (isNaN(d)) return null;
+                const diffMs = now.getTime() - d.getTime();
+                if (diffMs < thresholdMs) return null;
+                return {
+                    name: rec['Name'] || rec['Company'] || 'N/A',
+                    website: rec['Website'] || rec['WEBSITE'] || rec['URL'] || '',
+                    thirdEmailDate: third,
+                    daysSince: Math.floor(diffMs / (24 * 60 * 60 * 1000)),
+                    country: rec['Country'] || selectedCountry
+                };
+            })
+            .filter(Boolean)
+            .sort((a,b) => b.daysSince - a.daysSince);
+    }
+
     const stats = {
         totalRecords: filteredData.length,
         categoryStats,
@@ -1515,7 +1711,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     });
     
     // Get all users for the "Who will call" dropdown
-    const allUsers = userRepository.findAll();
+    const allUsers = await userRepository.findAllAsync();
     
     res.render('dashboard', {
         user: req.session.user,
@@ -1533,6 +1729,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
         topManagerEntries,
         recentStart: recentStart || '',
         recentEnd: recentEnd || '',
+        followUpAlerts,
         pendingApprovals,
         operatorTasks,
         myRejected,
@@ -1573,15 +1770,17 @@ app.post('/priority-details', requireAuth, requireManagerOrAdmin, (req, res) => 
     res.json({ success: true, message: 'Priority details saved in session.' });
 });
 
-app.get('/form', requireAuth, requireManagerOrAdmin, (req, res) => {
-    const managers = userRepository.findAll().filter(u => (u.role === 'gerente' || u.role === 'manager'));
-    const managersList = managers.map(u => ({ id: u.id, name: u.name, email: u.email }));
+app.get('/form', requireAuth, requireManagerOrAdmin, async (req, res) => {
+    const users = await userRepository.findAllAsync();
+    const managers = users.filter(u => (u.role === 'gerente' || u.role === 'manager'));
+    const managersList = managers.map(u => ({ id: u.id, name: u.name, email: u.email }));     
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
     res.render('form', { user: req.session.user, managersList, selectedCountry });
 });
 
+// UI de Bulk Upload
 app.get('/bulk-upload', requireAuth, requireManagerOrAdmin, (req, res) => {
-    res.render('bulk-upload', { user: req.session.user });
+    return res.render('bulk-upload', { user: req.session.user });
 });
 
 // Rota de debug para verificar contagens por país diretamente do backend
@@ -1589,67 +1788,11 @@ app.get('/api/debug-counts', requireAuth, async (req, res) => {
     try {
         const allowedCountries = normalizeAllowedCountries(req.session.user?.allowedCountries);
         const selectedCountry = req.session.selectedCountry || (allowedCountries[0] || 'US');
-        const us = await readExcelData('US');
-        const ca = await readExcelData('CA');
-        const mx = await readExcelData('MX');
-        const cn = await readExcelData('CN');
+    const us = await readDbData('US');
+    const ca = await readDbData('CA');
+    const mx = await readDbData('MX');
+    const cn = await readDbData('CN');
         const allCount = us.length + ca.length + mx.length + cn.length;
-        // Diagnóstico detalhado por aba e distribuição de Country
-        let excelInfo = null;
-        try {
-            if (fs.existsSync(EXCEL_PATH)) {
-                const wb = XLSX.readFile(EXCEL_PATH);
-                const sheetNames = wb.SheetNames || [];
-                const preferred = ['Wholesale LOKOK','Wholesale CANADA','Wholesale MEXICO','Wholesale CHINA'];
-                const existingPreferred = preferred.filter(n => sheetNames.includes(n));
-                const perSheetCounts = {};
-                const countryHistogram = {};
-                for (const name of sheetNames) {
-                    try {
-                        const ws = wb.Sheets[name];
-                        const rows = XLSX.utils.sheet_to_json(ws);
-                        perSheetCounts[name] = rows.length;
-                        // Histograma de Country (limitado para depuração)
-                        const hist = {};
-                        for (const r of rows) {
-                            const c = r.Country || r.PAIS || r.País || r['COUNTRY'] || '';
-                            const key = String(c || '').trim().toUpperCase() || '(BLANK)';
-                            hist[key] = (hist[key] || 0) + 1;
-                        }
-                        // ordenar chaves por contagem desc e limitar a 10
-                        const sorted = Object.entries(hist).sort((a,b) => b[1]-a[1]).slice(0, 10);
-                        countryHistogram[name] = Object.fromEntries(sorted);
-                    } catch (_) {}
-                }
-                // Filtragem específica: US na aba LOKOK (antes/depois)
-                let usFromLokokUnfiltered = null;
-                let usFromLokokFiltered = null;
-                if (sheetNames.includes('Wholesale LOKOK')) {
-                    const ws = wb.Sheets['Wholesale LOKOK'];
-                    const rows = XLSX.utils.sheet_to_json(ws);
-                    usFromLokokUnfiltered = rows.length;
-                    const aliases = getCountryAliases('US');
-                    const filtered = rows.filter(r => {
-                        const c = r.Country || r.PAIS || r.País || r['COUNTRY'];
-                        const cu = c ? String(c).toUpperCase() : '';
-                        return c ? aliases.some(a => cu.includes(a)) : false;
-                    });
-                    usFromLokokFiltered = filtered.length;
-                }
-                excelInfo = {
-                    excelPath: EXCEL_PATH,
-                    sheetNames,
-                    existingPreferred,
-                    perSheetCounts,
-                    countryHistogram,
-                    usFromLokokUnfiltered,
-                    usFromLokokFiltered,
-                };
-            }
-        } catch (excelErr) {
-            excelInfo = { error: excelErr?.message || String(excelErr) };
-        }
-
             res.json({
                 selectedCountry,
                 counts: {
@@ -1658,7 +1801,7 @@ app.get('/api/debug-counts', requireAuth, async (req, res) => {
                     MX: mx.length,
                     CN: cn.length
                 },
-                excelInfo
+                source: 'database'
             });
     } catch (e) {
         console.error('[DEBUG] Erro em /api/debug-counts:', e);
@@ -1702,32 +1845,7 @@ app.get('/api/db-counts', requireAuth, async (req, res) => {
     }
 });
 
-// Contagem por país a partir do Excel/Google Drive (fallback quando DB não está ativo)
-app.get('/api/excel-counts', requireAuth, async (req, res) => {
-    try {
-        const all = await readExcelData('ALL');
-        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY'] || rec.country) || null;
-        const canonicalCountry = (c) => {
-            const v = String(c || '').trim().toUpperCase();
-            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
-            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
-            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
-            if (['CN','CHINA'].includes(v)) return 'CN';
-            return 'UNK';
-        };
-        const byCountry = {};
-        let total = 0;
-        for (const rec of all) {
-            const code = canonicalCountry(getCountry(rec));
-            byCountry[code] = (byCountry[code] || 0) + 1;
-            total++;
-        }
-        res.json({ success: true, total, byCountry });
-    } catch (e) {
-        console.error('[EXCEL-COUNTS] Falha ao calcular contagem por país:', e);
-        res.status(500).json({ success: false, error: e?.message || String(e) });
-    }
-});
+// (Removido) Rota de contagem via Excel — usar /api/db-counts
 
 // Health-check simples (sem autenticação) para validar servidor/porta
 app.get('/healthz', (req, res) => {
@@ -1752,8 +1870,8 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para escrever dados. Configure USE_DB/DATABASE_URL.' });
     }
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
-    const data = await readExcelData(selectedCountry);
-    const allData = await readExcelData('ALL');
+    const data = await readDbData(selectedCountry);
+    const allData = await readDbData('ALL');
     const normalizeWebsite = (s) => {
         let w = String(s || '').trim().toLowerCase();
         if (!w) return '';
@@ -1783,8 +1901,12 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         'Name': req.body.name,
         'Website': req.body.website,
         'CATEGORÍA': req.body.categoria,
+        'Type': req.body.type,
         'Account Request Status': req.body.accountStatus,
         'DATE': req.body.date,
+        'First Email Sent': req.body.firstEmailDate,
+        'Second Email Sent': req.body.secondEmailDate,
+        'Third Email Sent': req.body.thirdEmailDate,
         // Default Responsable to current user's name if not provided
         'Responsable': req.body.responsable || (req.session.user?.name || ''),
         'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)': req.body.status,
@@ -1793,8 +1915,11 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         'Contact Phone': req.body.phone,
         'E-Mail': req.body.email,
         'Address': req.body.address,
+        'Did you find a warehouse or truckload zone during your map search?': req.body.warehouseZoneFound,
         'User': req.body.user,
         'PASSWORD': req.body.password,
+        'Inventory List': req.body.inventoryList,
+        'Inventory List Comments': req.body.inventoryListComments,
         'LLAMAR': req.body.llamar,
         'PRIO (1 - TOP, 5 - bajo)': req.body.prioridade,
         'Comments': req.body.comments,
@@ -1837,9 +1962,7 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
         // Persist directly to DB JSONB table
         saved = await insertJsonSupplier(newRecord, selectedCountry, req.session.user);
     } else {
-        // Fallback to Excel/Drive persistence
-        data.push(newRecord);
-        saved = await writeExcelData(data, selectedCountry);
+        return res.status(500).json({ success: false, message: 'Banco de dados não habilitado para escrita. Configure USE_DB/DATABASE_URL.' });
     }
     // Fluxo de aprovação: registros com prioridade High sempre precisam de aprovação
     try {
@@ -1879,18 +2002,28 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
 });
 
 // Rota para gerenciar usuários (apenas admin)
-app.get('/users', requireAuth, requireAdmin, (req, res) => {
-    const users = userRepository.findAll();
-    res.render('users', { 
-        users: users,
-        currentUser: req.session.user
-    });
+app.get('/users', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const users = await userRepository.findAllAsync();
+        res.render('users', { 
+            users: users,
+            currentUser: req.session.user
+        });
+    } catch (e) {
+        console.warn('Falha ao listar usuários:', e?.message || e);
+        res.render('users', { users: [], currentUser: req.session.user });
+    }
 });
 
 // Healthcheck detalhado para diagnóstico em produção
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
     try {
-        const users = userRepository.findAll();
+        let users = [];
+        try {
+            users = await userRepository.findAllAsync();
+        } catch (e) {
+            console.warn('[HEALTH] Falha ao obter usuários para health:', e?.message || e);  
+        }
         const roleCounts = users.reduce((acc, u) => {
             const r = String(u.role || '').toLowerCase();
             acc[r] = (acc[r] || 0) + 1;
@@ -1904,11 +2037,15 @@ app.get('/health', (req, res) => {
             port: process.env.PORT || 3000,
             env: {
                 NODE_ENV: process.env.NODE_ENV || null,
-                DATA_DIR: process.env.DATA_DIR || null
+                DATA_DIR: process.env.DATA_DIR || null,
+                USE_DB_USERS: process.env.USE_DB_USERS || null,
+                USE_DB: process.env.USE_DB || null,
+                DATABASE_URL_present: !!process.env.DATABASE_URL
             },
             cwd: process.cwd(),
             viewsPath: app.get('views'),
-            usersFilePath: userRepository.usersFilePath,
+            userSource: 'database',
+            usersFilePath: null,
             usersCount: users.length,
             roleCounts
         });
@@ -1935,12 +2072,13 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
         allowedCountries = allowedCountries.filter(c => validCountries.includes((c || '').toUpperCase())).map(c => c.toUpperCase());
         
         // Verificar se email já existe
-        if (userRepository.emailExists(email)) {
+        const emailInUse = await userRepository.existsEmailAsync(email);
+        if (emailInUse) {
             return res.json({ success: false, message: 'Email is already in use' });
         }
         
         // Criar novo usuário
-        const newUser = userRepository.create({
+        const newUser = await userRepository.createAsync({
             name,
             email,
             password,
@@ -1948,16 +2086,24 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
             createdBy: req.session.user.id,
             allowedCountries: allowedCountries
         });
+        // Auditoria: registrar criação de usuário (sem incluir senha)
+        try {
+            const actor = req.session?.user?.email || 'unknown';
+            const details = JSON.stringify({ name: newUser.name, email: newUser.email, role: newUser.role, allowedCountries: newUser.allowedCountries });
+            audit.logActivity('USER_CREATE', actor, newUser.email, details, req.ip);
+        } catch (auditErr) {
+            console.warn('Falha ao registrar auditoria de criação de usuário:', auditErr?.message || auditErr);
+        }
         
         res.json({ success: true, user: newUser });
     } catch (error) {
         console.error('Error creating user:', error);
-        res.json({ success: false, message: 'Internal server error' });
+        res.status(500).json({ success: false, message: error?.message || 'Internal server error' });
     }
 });
 
 // API para editar usuário
-app.put('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const userId = parseInt(req.params.id);
         const { name, email, password, role } = req.body;
@@ -1979,13 +2125,13 @@ app.put('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
         }
         
         // Verificar se email já existe (exceto para o próprio usuário)
-        const existingUser = userRepository.findByEmail(email);
+        const existingUser = await userRepository.findByEmailAsync(email);
         if (existingUser && existingUser.id !== userId) {
             return res.json({ success: false, message: 'This email is already in use by another user' });
         }
         
         // Atualizar usuário
-        const updatedUser = userRepository.update(userId, {
+        const updatedUser = await userRepository.updateAsync(userId, {
             name,
             email,
             password, // Será undefined se não fornecida
@@ -2005,7 +2151,7 @@ app.put('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // API para deletar usuário
-app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
+app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
         const userId = parseInt(req.params.id);
         const currentUserId = req.session.user.id;
@@ -2015,7 +2161,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
             return res.json({ success: false, message: 'You cannot delete your own account' });
         }
         
-        const success = userRepository.delete(userId);
+        const success = await userRepository.deleteAsync(userId);
         
         if (success) {
             res.json({ success: true, message: 'User deleted successfully' });
@@ -2029,12 +2175,12 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res) => {
 });
 
 // Atualizar perfil do próprio usuário (nome e senha)
-app.put('/api/me', requireAuth, (req, res) => {
+app.put('/api/me', requireAuth, async (req, res) => {
     try {
         const userId = req.session.user.id;
         const { name, currentPassword, newPassword } = req.body || {};
 
-        const user = userRepository.findById(userId);
+        const user = await userRepository.findByIdAsync(userId);
         if (!user) {
             return res.json({ success: false, message: 'User not found' });
         }
@@ -2058,7 +2204,7 @@ app.put('/api/me', requireAuth, (req, res) => {
             return res.json({ success: false, message: 'No changes to apply' });
         }
 
-        const updatedUser = userRepository.update(userId, updateData);
+        const updatedUser = await userRepository.updateAsync(userId, updateData);
         if (updatedUser) {
             // Sincronizar sessão com novo nome, se alterado
             if (updateData.name) {
@@ -2087,7 +2233,7 @@ app.get('/search', requireAuth, requireRole(['operator','admin','manager']), asy
     const { query, type } = req.query;
     // Garantir que buscas respeitem o país selecionado na sessão
     const selectedCountry = req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
-    let data = await readExcelData(selectedCountry);
+    let data = await readDbData(selectedCountry);
     
     // Helpers definidos ANTES do uso para evitar erros de TDZ
     const normalize = (s) => ((s || '') + '')
@@ -2132,7 +2278,7 @@ app.get('/search', requireAuth, requireRole(['operator','admin','manager']), asy
     const countryIndexMaps = {};
     for (const cc of countryCodes) {
         try {
-            const arr = await readExcelData(cc);
+    const arr = await readDbData(cc);
             const byWeb = new Map();
             const byName = new Map();
             arr.forEach((r, idx) => {
@@ -2171,9 +2317,15 @@ app.get('/search', requireAuth, requireRole(['operator','admin','manager']), asy
     
     // Correlação: enriquecer registros com Created_By_* quando o responsable mencionar um usuário gerencial
     try {
-        const managers = (userRepository && Array.isArray(userRepository.users))
-            ? userRepository.users.filter(u => (u.role === 'gerente' || u.role === 'manager') && !!u.isActive)
-            : [];
+        let managers = [];
+        try {
+            const allUsers = await userRepository.findAllAsync();
+            managers = Array.isArray(allUsers)
+                ? allUsers.filter(u => (u.role === 'gerente' || u.role === 'manager') && !!u.isActive)
+                : [];
+        } catch (_) {
+            managers = [];
+        }
         const candidates = managers.map(u => ({
             id: Number(u.id),
             name: (u.name || '').toString(),
@@ -2207,46 +2359,30 @@ app.get('/search', requireAuth, requireRole(['operator','admin','manager']), asy
     }
     
     // Para gerentes, mostrar todos os distribuidores mas com campos limitados para os que não são responsáveis
-    if (req.session.user.role === 'gerente') {
+    if (['gerente','manager'].includes(String(req.session.user.role || '').toLowerCase())) {
         // Não filtrar os dados, mas marcar quais são do usuário para controle de exibição
-        const userName = (req.session.user.name || '').toLowerCase();
-        const userEmail = (req.session.user.email || '').toLowerCase();
-        const userId = req.session.user.id;
+        const user = { id: req.session.user.id, name: req.session.user.name, email: req.session.user.email };
         data = data.map(record => {
-            const responsibleRaw = getField(record, ['Responsable','Manager','Buyer']);
-            const responsible = ((responsibleRaw || '') + '').toLowerCase();
+            const mentionSource = extractManagerLikeValue(record);
             const createdById = Number(record['Created_By_User_ID'] || record.Created_By_User_ID || 0);
             const createdByName = ((record['Created_By_User_Name'] || record.Created_By_User_Name || '') + '').toLowerCase();
-            const isResponsible = (
-                (responsible.includes(userName) || responsible.includes(userEmail)) ||
-                (!!userId && createdById === Number(userId)) ||
-                (createdByName && createdByName.includes(userName))
-            );
-            return {
-                ...record,
-                _isResponsible: !!isResponsible
-            };
+            const byMention = isUserMentionedIn(mentionSource, user);
+            const byCreated = (!!user.id && createdById === Number(user.id)) || (createdByName && createdByName.includes(String(user.name || '').toLowerCase()));
+            const isResponsible = byMention || byCreated;
+            return { ...record, _isResponsible: !!isResponsible };
         });
     } else if (req.session.user.role !== 'admin') {
         // Para outros usuários não-admin:
         // Sempre permitir visualizar todos os registros, marcando _isResponsible para controle de exibição
-        const userName = (req.session.user.name || '').toLowerCase();
-        const userEmail = (req.session.user.email || '').toLowerCase();
-        const userId = req.session.user.id;
+        const user = { id: req.session.user.id, name: req.session.user.name, email: req.session.user.email };
         data = data.map(record => {
-            const responsibleRaw = getField(record, ['Responsable','Manager','Buyer']);
-            const responsible = ((responsibleRaw || '') + '').toLowerCase();
+            const mentionSource = extractManagerLikeValue(record);
             const createdById = Number(record['Created_By_User_ID'] || record.Created_By_User_ID || 0);
             const createdByName = ((record['Created_By_User_Name'] || record.Created_By_User_Name || '') + '').toLowerCase();
-            const isResponsible = (
-                (responsible.includes(userName) || responsible.includes(userEmail)) ||
-                (!!userId && createdById === Number(userId)) ||
-                (createdByName && createdByName.includes(userName))
-            );
-            return {
-                ...record,
-                _isResponsible: !!isResponsible
-            };
+            const byMention = isUserMentionedIn(mentionSource, user);
+            const byCreated = (!!user.id && createdById === Number(user.id)) || (createdByName && createdByName.includes(String(user.name || '').toLowerCase()));
+            const isResponsible = byMention || byCreated;
+            return { ...record, _isResponsible: !!isResponsible };
         });
     }
     
@@ -2456,7 +2592,7 @@ app.get('/search', requireAuth, requireRole(['operator','admin','manager']), asy
 // Rota GET para exibir formulário de edição
 app.get('/edit/:id', requireAuth, async (req, res) => {
     const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
-    const data = await readExcelData(selectedCountry);
+    const data = await readDbData(selectedCountry);
     const recordId = parseInt(req.params.id);
     const user = req.session.user;
     
@@ -2470,30 +2606,20 @@ app.get('/edit/:id', requireAuth, async (req, res) => {
     
     const record = data[recordId];
 
-    // Verificar permissões: admin pode editar tudo; gerente pode editar se for responsável OU se o país selecionado estiver em allowedCountries OU se for o criador (Owner)
+    // Permissão: Admin, Owner (criador) ou Marcelo se for responsável pelo registro
     const roleNorm = normalizeRole(user.role);
-    if (roleNorm !== 'admin') {
-        if (roleNorm !== 'manager') {
-            return res.status(403).render('error', {
-                message: 'Access denied. Only administrators and managers can edit records.',
-                user: user
-            });
-        }
-        const managerRaw = extractManagerLikeValue(record);
-        const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
-        const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const responsibleVal = String(managerRaw || '');
-        const canEditByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
-        const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
-        const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
-        const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
-        const canEditByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
-        if (!canEditByResponsable && !isAllowedCountry && !canEditByCreated) {
-            return res.status(403).render('error', {
-                message: 'Access denied. You can only edit distributors you are responsible for or within your allowed countries.',
-                user: user
-            });
-        }
+    const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+    const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+    const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+    const isOwner = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+    const isMarcelo = String(user?.email || '').toLowerCase() === 'marcelogalvis@mylokok.com';
+    const mentionSourceEdit = extractManagerLikeValue(record);
+    const isResponsibleMarcelo = isMarcelo && (isUserMentionedIn(mentionSourceEdit, user) || isOwner);
+    if (roleNorm !== 'admin' && !isOwner && !isResponsibleMarcelo) {
+        return res.status(403).render('error', {
+            message: 'Access denied. Only the record owner (or admin) can edit.',
+            user: user
+        });
     }
     
     res.render('edit', { 
@@ -2509,8 +2635,8 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
         return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para editar dados. Configure USE_DB/DATABASE_URL.' });
     }
     const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
-    const data = await readExcelData(selectedCountry);
-    const allData = await readExcelData('ALL');
+    const data = await readDbData(selectedCountry);
+    const allData = await readDbData('ALL');
     const recordId = parseInt(req.params.id);
     const user = req.session.user;
     
@@ -2521,30 +2647,20 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     
     const record = data[recordId];
     
-    // Verificar permissões novamente
+    // Verificar permissões novamente: Admin, Owner ou Marcelo se for responsável
     const roleNormPost = normalizeRole(user.role);
-    if (roleNormPost !== 'admin') {
-        if (roleNormPost !== 'manager') {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'Access denied. Only administrators and managers can edit records.' 
-            });
-        }
-        const managerRaw = extractManagerLikeValue(record);
-        const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
-        const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-        const responsibleVal = String(managerRaw || '');
-        const canEditByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
-        const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
-        const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
-        const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
-        const canEditByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
-        if (!canEditByResponsable && !isAllowedCountry && !canEditByCreated) {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'Access denied. You can only edit distributors you are responsible for or within your allowed countries.' 
-            });
-        }
+    const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+    const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+    const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+    const isOwnerPost = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+    const isMarceloPost = String(user?.email || '').toLowerCase() === 'marcelogalvis@mylokok.com';
+    const mentionSourcePost = extractManagerLikeValue(record);
+    const isResponsibleMarceloPost = isMarceloPost && (isUserMentionedIn(mentionSourcePost, user) || isOwnerPost);
+    if (roleNormPost !== 'admin' && !isOwnerPost && !isResponsibleMarceloPost) {
+        return res.status(403).json({ 
+            success: false, 
+            message: 'Access denied. Only the record owner (or admin) can edit.' 
+        });
     }
     
     // Helpers de validação
@@ -2579,14 +2695,27 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
         name,
         website,
         categoria,
+        type,
         accountRequestStatus,
         status,
         generalStatus,
         responsable,
+        description,
+        comments,
+        llamar,
+        prioridade,
+        firstEmailDate,
+        secondEmailDate,
+        thirdEmailDate,
         contactName,
         contactEmail,
         contactPhone,
         address,
+        inventoryList,
+        inventoryListComments,
+        warehouseZoneFound,
+        user: accessUser,
+        password: accessPassword,
         city,
         state,
         country,
@@ -2617,6 +2746,7 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     if (name !== undefined) data[recordId].Name = name;
     if (website !== undefined) data[recordId].Website = website;
     if (categoria !== undefined) data[recordId]['CATEGORÍA'] = categoria;
+    if (type !== undefined) data[recordId]['Type'] = type;
     if (accountRequestStatus !== undefined) data[recordId]['Account Request Status'] = accountRequestStatus;
     // Atualizar o STATUS geral no cabeçalho oficial da planilha
     const STATUS_HEADER = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
@@ -2624,6 +2754,7 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     // Manter compatibilidade com possíveis campos antigos
     if (generalStatus !== undefined) data[recordId]['General Status'] = generalStatus;
     if (responsable !== undefined) data[recordId].Responsable = responsable;
+    if (description !== undefined) data[recordId]['Description/Notes'] = description;
     if (contactName !== undefined) data[recordId]['Contact Name'] = contactName;
     if (contactEmail !== undefined) {
         // Atualizar ambos cabeçalhos usados no sistema
@@ -2632,6 +2763,19 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
     }
     if (contactPhone !== undefined) data[recordId]['Contact Phone'] = contactPhone;
     if (address !== undefined) data[recordId].Address = address;
+    if (warehouseZoneFound !== undefined) {
+        data[recordId]['Did you find a warehouse or truckload zone during your map search?'] = warehouseZoneFound;
+    }
+    if (inventoryList !== undefined) data[recordId]['Inventory List'] = inventoryList;
+    if (inventoryListComments !== undefined) data[recordId]['Inventory List Comments'] = inventoryListComments;
+    if (comments !== undefined) data[recordId]['Comments'] = comments;
+    if (llamar !== undefined) data[recordId]['LLAMAR'] = llamar;
+    if (prioridade !== undefined) data[recordId]['PRIO (1 - TOP, 5 - bajo)'] = prioridade;
+    if (firstEmailDate !== undefined) data[recordId]['First Email Sent'] = firstEmailDate;
+    if (secondEmailDate !== undefined) data[recordId]['Second Email Sent'] = secondEmailDate;
+    if (thirdEmailDate !== undefined) data[recordId]['Third Email Sent'] = thirdEmailDate;
+    if (typeof accessUser !== 'undefined') data[recordId]['User'] = accessUser;
+    if (typeof accessPassword !== 'undefined') data[recordId]['PASSWORD'] = accessPassword;
     if (city !== undefined) data[recordId].City = city;
     if (state !== undefined) data[recordId].State = state;
     if (country !== undefined) data[recordId].Country = country;
@@ -2670,7 +2814,7 @@ app.post('/edit/:id', requireAuth, async (req, res) => {
             return res.status(500).json({ success: false, message: 'Erro ao atualizar no banco de dados.', error: e?.message });
         }
     } else {
-        saveSuccess = await writeExcelData(data, selectedCountry);
+        return res.status(500).json({ success: false, message: 'Banco de dados não habilitado para escrita. Configure USE_DB/DATABASE_URL.' });
     }
     if (!saveSuccess) {
         return res.status(500).json({ 
@@ -2689,7 +2833,7 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
     }
     try {
         const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || (req.session.user?.allowedCountries?.[0] || 'US');
-        const data = await readExcelData(selectedCountry);
+    const data = await readDbData(selectedCountry);
         const recordId = parseInt(req.params.id);
         const user = req.session.user;
 
@@ -2699,24 +2843,17 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
 
         const record = data[recordId];
 
-        // Permissões: admin pode deletar qualquer registro; gerente pode deletar se for responsável, país permitido ou criador do registro
+        // Permissão: Admin, Owner ou Marcelo se for responsável
         const roleNormDel = normalizeRole(user.role);
-        if (roleNormDel !== 'admin') {
-            if (roleNormDel !== 'manager') {
-                return res.status(403).json({ success: false, message: 'Access denied. Only administrators and managers can delete records.' });
-            }
-            const managerRaw = extractManagerLikeValue(record);
-            const allowedCountries = normalizeAllowedCountries(user.allowedCountries || []);
-            const isAllowedCountry = allowedCountries.includes(String(selectedCountry).toUpperCase());
-            const responsibleVal = String(managerRaw || '');
-            const canDeleteByResponsable = !(responsibleVal.trim()) || isUserMentionedIn(responsibleVal, user);
-            const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
-            const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
-            const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
-            const canDeleteByCreated = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
-            if (!canDeleteByResponsable && !isAllowedCountry && !canDeleteByCreated) {
-                return res.status(403).json({ success: false, message: 'Access denied. You can only delete distributors you are responsible for or within your allowed countries.' });
-            }
+        const createdByIdOkDel = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+        const createdByNameOkDel = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+        const createdByEmailOkDel = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+        const isOwnerDel = !!(createdByIdOkDel || createdByNameOkDel || createdByEmailOkDel);
+        const isMarceloDel = String(user?.email || '').toLowerCase() === 'marcelogalvis@mylokok.com';
+        const mentionSourceDel = extractManagerLikeValue(record);
+        const isResponsibleMarceloDel = isMarceloDel && (isUserMentionedIn(mentionSourceDel, user) || isOwnerDel);
+        if (roleNormDel !== 'admin' && !isOwnerDel && !isResponsibleMarceloDel) {
+            return res.status(403).json({ success: false, message: 'Access denied. Only the record owner (or admin) can delete.' });
         }
 
         // Persistência: prioriza DB quando habilitado; quando DB está ativo, NÃO fazer fallback para Excel
@@ -2754,85 +2891,50 @@ app.delete('/records/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Rota para download do template Excel
-app.get('/download-template', requireAuth, requireManagerOrAdmin, (req, res) => {
+// Rota de download de template Excel
+app.get('/download-template', requireAuth, requireManagerOrAdmin, async (req, res) => {
     try {
+        const headers = [
+            'Name', 'CATEGORÍA', 'Website', 'Account Request Status', 'DATE', 'Responsable',
+            'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)',
+            'Description/Notes', 'Contact Name', 'Contact Phone', 'E-Mail', 'Address',
+            'User', 'PASSWORD', 'LLAMAR', 'PRIO (1 - TOP, 5 - bajo)', 'Comments'
+        ];
+
         const wb = XLSX.utils.book_new();
+        const makeSheet = (title) => {
+            const ws = XLSX.utils.aoa_to_sheet([headers]);
+            ws['!cols'] = headers.map(h => ({ wch: Math.max(12, Math.min(36, h.length + 4)) }));
+            XLSX.utils.book_append_sheet(wb, ws, title);
+        };
 
-        // Cabeçalhos alinhados com o formulário e planilha
-        const STATUS_HEADER = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
-        const templateData = [
-            {
-                'Name': 'Example Company Ltd',
-                'Website': 'https://example.com',
-                'CATEGORÍA': 'Electronics',
-                'Account Request Status': 'REQUESTED',
-                'DATE': '2024-01-15',
-                'Responsable': 'John Doe',
-                [STATUS_HEADER]: 'PENDING APPROVAL',
-                'Description/Notes': 'Example supplier description',
-                'Contact Name': 'Jane Smith',
-                'Contact Phone': '+1-555-0123',
-                'E-Mail': 'jane@example.com',
-                'Address': '123 Business St',
-                'User': 'registered_user',
-                'PASSWORD': 'secret',
-                'LLAMAR': 'YES',
-                'PRIO (1 - TOP, 5 - bajo)': 'High',
-                'Comments': 'Additional notes',
-                'Country': 'US'
-            }
-        ];
-
-        const ws = XLSX.utils.json_to_sheet(templateData);
-
-        // Larguras de colunas otimizadas
-        const colWidths = [
-            { wch: 28 }, // Name
-            { wch: 30 }, // Website
-            { wch: 18 }, // CATEGORÍA
-            { wch: 20 }, // Account Request Status
-            { wch: 12 }, // DATE
-            { wch: 20 }, // Responsable
-            { wch: 40 }, // STATUS (...)
-            { wch: 32 }, // Description/Notes
-            { wch: 22 }, // Contact Name
-            { wch: 18 }, // Contact Phone
-            { wch: 26 }, // E-Mail
-            { wch: 28 }, // Address
-            { wch: 20 }, // User
-            { wch: 18 }, // PASSWORD
-            { wch: 12 }, // LLAMAR
-            { wch: 20 }, // PRIO (1 - TOP, 5 - bajo)
-            { wch: 30 }, // Comments
-            { wch: 10 }  // Country
-        ];
-        ws['!cols'] = colWidths;
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Suppliers Template');
+        // Criar abas para países suportados, facilitando inferência de país no upload
+        makeSheet('US Suppliers');
+        makeSheet('Canada Suppliers');
+        makeSheet('Mexico Suppliers');
+        makeSheet('China Suppliers');
 
         const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-        res.setHeader('Content-Disposition', 'attachment; filename="suppliers_template.xlsx"');
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.send(buffer);
-    } catch (error) {
-        console.error('Error generating template:', error);
-        res.status(500).json({ success: false, message: 'Error generating template file' });
+        res.setHeader('Content-Disposition', 'attachment; filename="suppliers_template.xlsx"');
+        return res.status(200).send(buffer);
+    } catch (e) {
+        console.error('Error generating template:', e);
+        return res.status(500).send('Failed to generate template.');
     }
 });
 
-// Rota para upload em lote de fornecedores (DB-first; fallback para Excel somente quando DB inativo)
+// (Removida) rota antiga de bulk-upload com fallback para Excel
+
+// Atualizar bulk-upload para usar DB como fonte principal quando habilitado
 app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('excelFile'), async (req, res) => {
     try {
-        if (REQUIRE_DB && !isDbEnabledForWrites()) {
-            return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para bulk upload. Configure USE_DB/DATABASE_URL.' });
-        }
         const user = req.session.user;
-        const file = req.file;
+        const file = req.file || (req.files?.excelFile);
         if (!file) {
             return res.status(400).json({ success: false, message: 'Nenhum arquivo enviado.' });
         }
-        const buffer = file.buffer;
+        const buffer = file.buffer || file.data;
         const workbook = XLSX.read(buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
@@ -2841,100 +2943,9 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, upload.single('exce
         const canUseDb = isDbEnabledForWrites();
 
         if (canUseDb) {
-            let inserted = 0, updated = 0, errors = 0;
-            // Inferir país a partir do sheet name
-            const normalized = String(sheetName || '').trim().toLowerCase();
-            let inferredCountry = null;
-            if (normalized.includes('lokok') || normalized.includes('usa') || normalized.includes('united states')) inferredCountry = 'US';
-            else if (normalized.includes('canada')) inferredCountry = 'CA';
-            else if (normalized.includes('mexico')) inferredCountry = 'MX';
-            else if (normalized.includes('china')) inferredCountry = 'CN';
-
-            for (const row of rows) {
-                try {
-                    // Garantir auditoria mínima quando possível
-                    if (!row['Created_At'] && !row['Created At'] && !row['DATE'] && !row['Date']) {
-                        row['Created_At'] = new Date().toISOString();
-                        row['Created_By_User_ID'] = user?.id || null;
-                        row['Created_By_User_Name'] = user?.name || null;
-                    }
-                    const result = await upsertJsonSupplier(row, inferredCountry || row.Country, user);
-                    if (result.inserted) inserted++; else if (result.updated) updated++; else errors++;
-                } catch (e) {
-                    console.warn('[BULK] Falha ao upsert linha:', e?.message);
-                    errors++;
-                }
-            }
-            return res.json({ success: true, message: 'Bulk upload processado via banco.', summary: { inserted, updated, errors, total: rows.length } });
-        }
-
-        // Fallback: lógica existente para Excel
-        const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || 'US';
-        const existing = await readExcelData(selectedCountry);
-        const STATUS_HEADER = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
-        // Mesclar mantendo cabeçalhos e evitar duplicidades por Website
-        const normalizeWebsite = (w) => {
-            if (!w) return '';
-            let s = String(w).trim().toLowerCase();
-            s = s.replace(/^https?:\/\//, '');
-            s = s.replace(/^www\./, '');
-            s = s.replace(/\/$/, '');
-            return s;
-        };
-        const getWebsite = (rec) => {
-            if (!rec) return '';
-            const candidate = (rec.distributor && (rec.distributor.Website || rec.distributor['WEBSITE'] || rec.distributor.URL || rec.distributor.Site))
-                || rec.Website || rec['WEBSITE'] || rec.URL || rec.Site || rec.website;
-            return candidate || '';
-        };
-        const seen = new Set(existing.map(r => normalizeWebsite(getWebsite(r))));
-        const merged = existing.slice();
-        let added = 0;
-        for (const row of rows) {
-            const key = normalizeWebsite(getWebsite(row));
-            if (key && seen.has(key)) continue;
-            seen.add(key);
-            // Assegurar headers importantes
-            if (row['Account Request Status'] === undefined) row['Account Request Status'] = '';
-            if (row[STATUS_HEADER] === undefined) row[STATUS_HEADER] = row['General Status'] || '';
-            row.Country = row.Country || selectedCountry;
-            merged.push(row);
-            added++;
-        }
-        const ok = await writeExcelData(merged, selectedCountry);
-        if (!ok) {
-            return res.status(500).json({ success: false, message: 'Erro ao salvar no Excel durante bulk-upload.' });
-        }
-        return res.json({ success: true, message: 'Bulk upload processado no Excel.', summary: { added, total: rows.length } });
-    } catch (error) {
-        console.error('Error processing bulk upload:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Error processing Excel file: ' + error.message 
-        });
-    }
-});
-
-// Atualizar bulk-upload para usar DB como fonte principal quando habilitado
-app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, async (req, res) => {
-    try {
-        const user = req.session.user;
-        const file = req.files?.excelFile;
-        if (!file) {
-            return res.status(400).json({ success: false, message: 'Nenhum arquivo enviado.' });
-        }
-        const buffer = file.data;
-        const workbook = XLSX.read(buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-
-        const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
-        const canUseDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-
-        if (canUseDb) {
             const { upsertJsonSupplier } = require('./database');
             let inserted = 0, updated = 0, errors = 0;
+            const warnings = [];
             // Inferir país a partir do sheet name
             const normalized = String(sheetName || '').trim().toLowerCase();
             let inferredCountry = null;
@@ -2945,6 +2956,15 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, async (req, res) =>
 
             for (const row of rows) {
                 try {
+                    // Avisos para campos obrigatórios ausentes
+                    if (!String(row['Name'] || '').trim()) {
+                        warnings.push('Linha sem Name informada. Registro não inserido.');
+                        errors++;
+                        continue;
+                    }
+                    if (!String(row['CATEGORÍA'] || '').trim()) {
+                        warnings.push(`Registro "${row['Name']}" sem CATEGORÍA. Prosseguindo com upsert.`);
+                    }
                     // Garantir auditoria mínima quando possível
                     if (!row['Created_At'] && !row['Created At'] && !row['DATE'] && !row['Date']) {
                         row['Created_At'] = new Date().toISOString();
@@ -2958,47 +2978,18 @@ app.post('/bulk-upload', requireAuth, requireManagerOrAdmin, async (req, res) =>
                     errors++;
                 }
             }
-            return res.json({ success: true, message: 'Bulk upload processado via banco.', summary: { inserted, updated, errors, total: rows.length } });
+            return res.json({
+                success: true,
+                message: 'Bulk upload processado via banco.',
+                recordsAdded: inserted,
+                recordsUpdated: updated,
+                errors,
+                warnings,
+                totalProcessed: rows.length
+            });
         }
 
-        // Fallback: lógica existente para Excel
-        const selectedCountry = (req.query.country && req.query.country.toUpperCase()) || req.session.selectedCountry || 'US';
-        const existing = await readExcelData(selectedCountry);
-        const STATUS_HEADER = 'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)';
-        // Mesclar mantendo cabeçalhos e evitar duplicidades por Website
-        const normalizeWebsite = (w) => {
-            if (!w) return '';
-            let s = String(w).trim().toLowerCase();
-            s = s.replace(/^https?:\/\//, '');
-            s = s.replace(/^www\./, '');
-            s = s.replace(/\/$/, '');
-            return s;
-        };
-        const getWebsite = (rec) => {
-            if (!rec) return '';
-            const candidate = (rec.distributor && (rec.distributor.Website || rec.distributor['WEBSITE'] || rec.distributor.URL || rec.distributor.Site))
-                || rec.Website || rec['WEBSITE'] || rec.URL || rec.Site || rec.website;
-            return candidate || '';
-        };
-        const seen = new Set(existing.map(r => normalizeWebsite(getWebsite(r))));
-        const merged = existing.slice();
-        let added = 0;
-        for (const row of rows) {
-            const key = normalizeWebsite(getWebsite(row));
-            if (key && seen.has(key)) continue;
-            seen.add(key);
-            // Assegurar headers importantes
-            if (row['Account Request Status'] === undefined) row['Account Request Status'] = '';
-            if (row[STATUS_HEADER] === undefined) row[STATUS_HEADER] = row['General Status'] || '';
-            row.Country = row.Country || selectedCountry;
-            merged.push(row);
-            added++;
-        }
-        const ok = await writeExcelData(merged, selectedCountry);
-        if (!ok) {
-            return res.status(500).json({ success: false, message: 'Erro ao salvar no Excel durante bulk-upload.' });
-        }
-        return res.json({ success: true, message: 'Bulk upload processado no Excel.', summary: { added, total: rows.length } });
+        return res.status(400).json({ success: false, message: 'Banco de dados não configurado; escrita em Excel foi descontinuada.' });
     } catch (error) {
         console.error('Error processing bulk upload:', error);
         res.status(500).json({ 
@@ -3029,8 +3020,7 @@ async function startServer() {
         }
 
         // Inicializar banco quando habilitado
-        const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
-        const useDb = !forceLocal && (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
+        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
         if (useDb) {
             console.log('🔄 Inicializando banco de dados (JSONB)...');
             await initializeDatabase();
@@ -3045,8 +3035,6 @@ async function startServer() {
             if (NODE_ENV === 'production' && googleDriveService) {
                 console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Google Drive');
                 console.log('🌐 [PRODUCTION DEBUG] URL de produção: https://lokok2-production.up.railway.app');
-            } else {
-                console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Arquivo Excel local');
             }
             
             if (NODE_ENV === 'development') {
@@ -3058,31 +3046,7 @@ async function startServer() {
             console.log('Admin: admin@lokok.com / admin123');
             console.log('Gerente: manager@lokok.com / manager123');
             
-            // Verificar se users.json existe (honrando DATA_DIR quando configurado)
-            const usersPath = path.join(DATA_DIR, 'users.json');
-            console.log(`📁 [PRODUCTION DEBUG] Verificando users.json em: ${usersPath}`);
-            
-            try {
-                if (fs.existsSync(usersPath)) {
-                    const usersData = fs.readFileSync(usersPath, 'utf8');
-                    let parsed = JSON.parse(usersData);
-                    const usersArr = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.users) ? parsed.users : []);
-                    console.log(`✅ [PRODUCTION DEBUG] users.json encontrado com ${usersArr.length} usuários`);
-                    if (usersArr.length > 0) {
-                        usersArr.forEach((user, index) => {
-                            const email = user && user.email ? user.email : '(sem email)';
-                            const role = user && user.role ? user.role : '(sem role)';
-                            console.log(`👤 [PRODUCTION DEBUG] Usuário ${index + 1}: ${email} (${role})`);
-                        });
-                    } else {
-                        console.warn('⚠️ [PRODUCTION DEBUG] users.json não contém uma lista de usuários válida (array).');
-                    }
-                } else {
-                    console.error('❌ [PRODUCTION DEBUG] users.json NÃO ENCONTRADO!');
-                }
-            } catch (error) {
-                console.error('❌ [PRODUCTION DEBUG] Erro ao ler users.json:', error);
-            }
+            // Autenticação e gestão de usuários usam exclusivamente o banco de dados.
         });
     } catch (error) {
         console.error('❌ [PRODUCTION DEBUG] Erro ao inicializar servidor:', error);
@@ -3222,7 +3186,7 @@ app.post('/operator-task/:id', requireAuth, requireRole(['operator', 'admin']), 
 });
 
 // Rota para exibir histórico do distribuidor
-app.get('/supplier-history/:id', requireAuth, requireRole(['admin', 'gerente']), (req, res) => {
+app.get('/supplier-history/:id', requireAuth, requireRole(['admin', 'gerente', 'manager']), (req, res) => {
     try {
         const id = req.params.id;
         const store = readSuppliersStore();
@@ -3232,7 +3196,7 @@ app.get('/supplier-history/:id', requireAuth, requireRole(['admin', 'gerente']),
         }
         const user = req.session.user;
         const isAdmin = user.role === 'admin';
-        const isManager = user.role === 'gerente';
+        const isManager = ['gerente','manager'].includes(String(user.role || '').toLowerCase());
         const isAuthor = item.createdBy && String(item.createdBy.id) === String(user.id);
         const isResponsible = item.distributor && item.distributor['Responsable'] && item.distributor['Responsable'] === user.name;
         if (!isAdmin && !(isManager && (isAuthor || isResponsible))) {
@@ -3248,8 +3212,34 @@ app.get('/supplier-history/:id', requireAuth, requireRole(['admin', 'gerente']),
 // Nova rota para exibir a aba de LOGs
 app.get('/logs', requireAuth, async (req, res) => {
     const user = req.session.user;
-    // Caso futuramente tenhamos uma fonte de registros, poderemos popular este array.
-    const logs = [];
+    const logType = String(req.query.logType || 'all').toLowerCase();
+    const userFilter = String(req.query.userFilter || '').toLowerCase();
+    const startDate = req.query.startDate ? new Date(req.query.startDate) : null;
+    const endDate = req.query.endDate ? new Date(req.query.endDate) : null;
+
+    // Unificar formato de logs
+    const unifyAccess = (l) => ({ timestamp: l.timestamp, type: 'ACCESS', user: l.username, action: l.action, details: l.userAgent, ip: l.ip });
+    const unifyActivity = (l) => ({ timestamp: l.timestamp, type: 'ACTIVITY', user: l.username, action: l.action, details: l.details, ip: l.ip });
+
+    let logs = [];
+    try {
+        const access = audit.getAccessLogs(500).map(unifyAccess);
+        const activity = audit.getActivityLogs(500).map(unifyActivity);
+        if (logType === 'access') logs = access;
+        else if (logType === 'activity') logs = activity;
+        else logs = [...activity, ...access].sort((a, b) => (a.timestamp > b.timestamp ? -1 : 1));
+        // Filtros simples (também procura no campo detalhes)
+        if (userFilter) logs = logs.filter(l => {
+            const u = String(l.user || '').toLowerCase();
+            const d = String(l.details || '').toLowerCase();
+            return u.includes(userFilter) || d.includes(userFilter);
+        });
+        if (startDate) logs = logs.filter(l => new Date(l.timestamp) >= startDate);
+        if (endDate) logs = logs.filter(l => new Date(l.timestamp) <= endDate);
+    } catch (e) {
+        console.warn('Falha ao carregar logs:', e?.message || e);
+        logs = [];
+    }
     const debugCounts = req.session.lastSearchDebugCounts || null;
 
     res.render('logs', {
@@ -3257,6 +3247,44 @@ app.get('/logs', requireAuth, async (req, res) => {
         logs,
         debugCounts
     });
+});
+
+// Exportar logs em CSV
+app.get('/logs/export', requireAuth, (req, res) => {
+    try {
+        const logType = String(req.query.logType || 'all').toLowerCase();
+        const userFilter = String(req.query.userFilter || '').toLowerCase();
+        const startDate = req.query.startDate ? new Date(req.query.startDate) : null;
+        const endDate = req.query.endDate ? new Date(req.query.endDate) : null;
+
+        const unifyAccess = (l) => ({ timestamp: l.timestamp, type: 'ACCESS', user: l.username, action: l.action, details: l.userAgent, ip: l.ip });
+        const unifyActivity = (l) => ({ timestamp: l.timestamp, type: 'ACTIVITY', user: l.username, action: l.action, details: l.details, ip: l.ip });
+
+        let logs = [];
+        const access = audit.getAccessLogs(1000).map(unifyAccess);
+        const activity = audit.getActivityLogs(1000).map(unifyActivity);
+        if (logType === 'access') logs = access;
+        else if (logType === 'activity') logs = activity;
+        else logs = [...activity, ...access].sort((a, b) => (a.timestamp > b.timestamp ? -1 : 1));
+        if (userFilter) logs = logs.filter(l => {
+            const u = String(l.user || '').toLowerCase();
+            const d = String(l.details || '').toLowerCase();
+            return u.includes(userFilter) || d.includes(userFilter);
+        });
+        if (startDate) logs = logs.filter(l => new Date(l.timestamp) >= startDate);
+        if (endDate) logs = logs.filter(l => new Date(l.timestamp) <= endDate);
+
+        const header = 'timestamp,type,user,action,details,ip\n';
+        const lines = logs.map(l => {
+            const safe = (v) => String(v || '').replace(/"/g, '""');
+            return `"${safe(l.timestamp)}","${safe(l.type)}","${safe(l.user)}","${safe(l.action)}","${safe(l.details)}","${safe(l.ip)}"`;
+        }).join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="logs.csv"');
+        return res.send(header + lines + '\n');
+    } catch (e) {
+        return res.status(500).json({ error: e?.message || String(e) });
+    }
 });
 
 // Troca de país selecionado na sessão
@@ -3308,7 +3336,7 @@ app.get('/api/dev/manager-counts', async (req, res) => {
       }
     }
 
-    const users = userRepository.findAll();
+    const users = await userRepository.findAllAsync();
     const marcelo = users.find(u => (u.email || '').toLowerCase() === 'marcelogalvis@mylokok.com');
     const jeison = users.find(u => (u.email || '').toLowerCase() === 'jeisonanteliz@mylokok.com');
     const managers = [marcelo, jeison].filter(Boolean);
@@ -3316,7 +3344,7 @@ app.get('/api/dev/manager-counts', async (req, res) => {
       return res.json({ managersFound: managers.length, counts: {}, total: 0 });
     }
 
-    const allRecords = await readExcelData('ALL');
+    const allRecords = await readDbData('ALL');
 
     const matchesResponsible = (record, manager) => {
       const rec = record.distributor || record;
@@ -3419,134 +3447,7 @@ async function downloadFileFromUrl(fileUrl, destPath) {
   });
 }
 
-// Rota admin para importar/substituir o Excel local via URL
-app.get('/admin/import-excel-from-url', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const sourceUrl = (req.query.url || '').trim();
-    if (!sourceUrl) {
-      return res.status(400).json({
-        success: false,
-        message: 'Parâmetro "url" é obrigatório. Ex: /admin/import-excel-from-url?url=https://.../arquivo.xlsx'
-      });
-    }
-    const dataDir = path.join(__dirname, 'data');
-    try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
-    const destPath = path.join(dataDir, 'Wholesale Suppliers and Product Opportunities.xlsx');
-    await downloadFileFromUrl(sourceUrl, destPath);
-
-    let totalLokok = 0;
-    try {
-      const wb = XLSX.readFile(destPath);
-      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
-      if (ws) {
-        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        totalLokok = json.length;
-      }
-    } catch {}
-
-    return res.json({
-      success: true,
-      message: 'Arquivo Excel importado e salvo com sucesso no data/.',
-      dest: destPath,
-      counts: { 'Wholesale LOKOK': totalLokok }
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Falha ao importar Excel', error: err.message });
-  }
-});
-
-// Rota admin para substituir Excel local pelo arquivo oficial do repositório
-// Copia data/lokok2-export-US-20251119.xlsx para data/Wholesale Suppliers and Product Opportunities.xlsx
-app.get('/admin/replace-excel-with-official', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const officialCandidates = [
-      path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
-      path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx')
-    ];
-    const destPath = path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
-
-    let sourcePath = null;
-    for (const p of officialCandidates) {
-      if (fs.existsSync(p)) { sourcePath = p; break; }
-    }
-    if (!sourcePath) {
-      return res.status(404).json({ success: false, message: 'Arquivo oficial não encontrado no servidor.' });
-    }
-
-    try { fs.mkdirSync(path.dirname(destPath), { recursive: true }); } catch {}
-    fs.copyFileSync(sourcePath, destPath);
-
-    let totalLokok = 0;
-    try {
-      const wb = XLSX.readFile(destPath);
-      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
-      if (ws) {
-        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        totalLokok = json.length;
-      }
-    } catch {}
-
-    return res.json({
-      success: true,
-      message: 'Excel local substituído pelo arquivo oficial.',
-      source: sourcePath,
-      dest: destPath,
-      counts: { 'Wholesale LOKOK': totalLokok }
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Falha ao substituir Excel', error: err.message });
-  }
-});
-
-// Rota aberta, somente quando em produção e FORCE_LOCAL_EXCEL=1
-// Permite substituir o Excel ativo pelo oficial sem autenticação (para alinhamento rápido)
-app.get('/api/replace-excel-with-official-open', async (req, res) => {
-  try {
-    if (process.env.NODE_ENV !== 'production') {
-      return res.status(403).json({ success: false, message: 'Disponível apenas em produção' });
-    }
-    if (process.env.FORCE_LOCAL_EXCEL !== '1') {
-      return res.status(403).json({ success: false, message: 'Disponível apenas quando FORCE_LOCAL_EXCEL=1' });
-    }
-
-    const officialCandidates = [
-      path.join(__dirname, 'data', 'lokok2-export-US-20251119.xlsx'),
-      path.join(__dirname, 'Lokok2', 'data', 'lokok2-export-US-20251119.xlsx')
-    ];
-    const destPath = path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
-
-    let sourcePath = null;
-    for (const p of officialCandidates) {
-      if (fs.existsSync(p)) { sourcePath = p; break; }
-    }
-    if (!sourcePath) {
-      return res.status(404).json({ success: false, message: 'Arquivo oficial não encontrado no servidor.' });
-    }
-
-    try { fs.mkdirSync(path.dirname(destPath), { recursive: true }); } catch {}
-    fs.copyFileSync(sourcePath, destPath);
-
-    let totalLokok = 0;
-    try {
-      const wb = XLSX.readFile(destPath);
-      const ws = wb.Sheets['Wholesale LOKOK'] || wb.Sheets[wb.SheetNames[0]];
-      if (ws) {
-        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        totalLokok = json.length;
-      }
-    } catch {}
-
-    return res.json({
-      success: true,
-      message: 'Excel local substituído pelo arquivo oficial (open).',
-      source: sourcePath,
-      dest: destPath,
-      counts: { 'Wholesale LOKOK': totalLokok }
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Falha ao substituir Excel (open)', error: err.message });
-  }
-});
+// (Removidas) rotas de importação/substituição de Excel local — Drive/DB somente
 
 // Rota admin para migrar o Excel atual para o PostgreSQL (suppliers_json)
 // Útil após importar um novo arquivo via URL ou upload manual
@@ -3714,13 +3615,11 @@ app.get('/admin/last-json-records', requireAuth, requireAdmin, async (req, res) 
 // Rota admin de diagnóstico da fonte de dados em uso e contagem atual (US)
 app.get('/admin/source-status', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const forceLocal = process.env.FORCE_LOCAL_EXCEL === '1';
     const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof getJsonSuppliers === 'function';
-    const db_active = !forceLocal && useDb;
-    const driveConfigured = !!googleDriveService;
-    const excelPath = EXCEL_PATH || null;
+    const db_active = useDb;
+    const driveConfigured = !!googleDriveService && !!process.env.GOOGLE_DRIVE_FILE_ID;
     const selectedCountry = req.session.selectedCountry || 'US';
-    const source = db_active ? 'database' : (driveConfigured ? 'googleDrive' : 'localExcel');
+    const source = db_active ? 'database' : (driveConfigured ? 'googleDrive' : 'none');
 
     let countsUS = null;
     try {
@@ -3728,7 +3627,7 @@ app.get('/admin/source-status', requireAuth, requireAdmin, async (req, res) => {
         const dataUS = await getJsonSuppliers(['US']);
         countsUS = Array.isArray(dataUS) ? dataUS.length : null;
       } else {
-        const dataUS = await readExcelData('US');
+    const dataUS = await readDbData('US');
         countsUS = Array.isArray(dataUS) ? dataUS.length : null;
       }
     } catch (_) {}
@@ -3747,16 +3646,10 @@ app.get('/admin/source-status', requireAuth, requireAdmin, async (req, res) => {
       countsUS
     };
 
-    if (db_active) {
-      // Ocultar detalhes de Excel/Drive quando banco está ativo
-      return res.json(base);
-    }
-
-    // Quando DB não está ativo, incluir detalhes de Excel/Drive para diagnóstico
+    // Incluir detalhes de Drive quando DB não está ativo
     return res.json({
       ...base,
-      driveConfigured,
-      excelPath
+      driveConfigured
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Falha ao consultar status da fonte', error: err.message });
@@ -3823,7 +3716,7 @@ app.get('/admin/export-excel', requireAuth, requireAdmin, async (req, res) => {
   try {
     const rawCountry = (req.query.country || 'US').toUpperCase();
     const country = rawCountry === 'ALL' ? 'ALL' : (normalizeCountryCode(rawCountry) || 'US');
-    const data = await readExcelData(country === 'ALL' ? 'ALL' : country);
+    const data = await readDbData(country === 'ALL' ? 'ALL' : country);
     if (!Array.isArray(data) || data.length === 0) {
       return res.status(404).json({ success: false, message: `Nenhum registro encontrado para ${country}` });
     }
@@ -3888,431 +3781,19 @@ app.get('/admin/health-routes', requireAuth, requireAdmin, (req, res) => {
 });
 
 // RESET TOTAL DA BASE (apenas admin): zera abas preferidas do Excel e limpa suppliers.json
-app.get('/admin/reset-base', requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const info = { excelPath: EXCEL_PATH, actions: [] };
-        // Limpar store local de fornecedores (pendências/approvals)
-        try {
-            writeSuppliersStore([]);
-            info.actions.push('suppliers_store_cleared');
-        } catch (e) {
-            console.warn('Aviso: falha ao limpar suppliers store:', e?.message);
-        }
-
-        // Zerar abas preferidas no Excel
-        if (!fs.existsSync(EXCEL_PATH)) {
-            return res.status(500).json({ success: false, message: `Arquivo Excel não encontrado: ${EXCEL_PATH}` });
-        }
-        const wb = XLSX.readFile(EXCEL_PATH);
-        const sheetNames = wb.SheetNames || [];
-        const preferred = ['Wholesale LOKOK','Wholesale CANADA','Wholesale MEXICO','Wholesale CHINA'];
-        const baseWs = sheetNames.includes('Wholesale LOKOK') ? wb.Sheets['Wholesale LOKOK'] : wb.Sheets[sheetNames[0]];
-        const headers = inferHeadersFromWorksheet(baseWs);
-        const emptyAoA = [headers];
-        const emptyWS = XLSX.utils.aoa_to_sheet(emptyAoA);
-        const cleared = {};
-        for (const name of preferred) {
-            try {
-                wb.Sheets[name] = XLSX.utils.aoa_to_sheet(emptyAoA);
-                if (!sheetNames.includes(name)) wb.SheetNames.push(name);
-                cleared[name] = true;
-            } catch (e) {
-                cleared[name] = false;
-            }
-        }
-        XLSX.writeFile(wb, EXCEL_PATH);
-        info.actions.push('excel_preferred_sheets_cleared');
-        info.cleared = cleared;
-        console.log('🧹 [ADMIN] Reset de base concluído:', info);
-        res.json({ success: true, message: 'Base resetada (Excel e suppliers.json)', info });
-    } catch (e) {
-        console.error('❌ [ADMIN] Falha no reset-base:', e);
-        res.status(500).json({ success: false, message: 'Erro ao resetar base', error: e?.message });
-    }
-});
+// (Removido) /admin/reset-base — operações locais com Excel não são mais suportadas
 
 // Rota aberta (sem autenticação) para validar contagens no ambiente de desenvolvimento
 // Usada apenas para conferência rápida quando FORCE_LOCAL_EXCEL=1
-app.get('/api/debug-counts-open', async (req, res) => {
-    try {
-        if (process.env.NODE_ENV !== 'development') {
-            return res.status(403).json({ error: 'Disponível apenas em desenvolvimento' });
-        }
-        if (process.env.FORCE_LOCAL_EXCEL !== '1') {
-            return res.status(403).json({ error: 'Disponível apenas quando FORCE_LOCAL_EXCEL=1' });
-        }
-        const us = await readExcelData('US');
-        const ca = await readExcelData('CA');
-        const mx = await readExcelData('MX');
-        const cn = await readExcelData('CN');
-        res.json({ counts: { US: us.length, CA: ca.length, MX: mx.length, CN: cn.length } });
-    } catch (e) {
-        console.error('[DEBUG] Erro em /api/debug-counts-open:', e);
-        res.status(500).json({ error: 'Erro interno' });
-    }
-});
+// (Removido) /api/debug-counts-open — FORCE_LOCAL_EXCEL não é mais suportado
 
-// Deduplicação direta no Excel (fallback), removendo entradas duplicadas por domínio/e-mail.
-// Mantém o registro mais recente com base em Created_At (fallback para DATE).
-app.get('/admin/deduplicate-excel', requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-        if (useDb) {
-            return res.status(400).json({ success: false, message: 'Fonte atual é banco de dados. Use /admin/deduplicate-suppliers.' });
-        }
+// (Removida) rota admin de deduplicação no Excel — Excel local não suportado
 
-        const all = await readExcelData('ALL');
-        if (!Array.isArray(all) || all.length === 0) {
-            return res.json({ success: true, message: 'Nada a deduplicar (Excel vazio).', result: { total: 0, deleted: 0, kept: 0 } });
-        }
-
-        const normalizeHost = (s) => {
-            let w = String(s || '').trim().toLowerCase();
-            if (!w) return null;
-            try {
-                if (/^https?:\/\//.test(w)) {
-                    const u = new URL(w);
-                    w = u.hostname;
-                } else {
-                    w = w.replace(/^www\./, '').split('/')[0];
-                }
-            } catch (_) {
-                w = w.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-            }
-            w = w.replace(/:\d+$/, '');
-            w = w.replace(/\.$/, '');
-            return w || null;
-        };
-        const normalizeEmail = (e) => { if (!e) return null; return String(e).trim().toLowerCase(); };
-        const normalizeText = (t) => { if (!t) return null; return String(t).trim().toLowerCase(); };
-        const getWebsite = (rec) => {
-            if (!rec) return null;
-            const candidate = (rec.distributor && (rec.distributor.Website || rec.distributor['WEBSITE'] || rec.distributor.URL || rec.distributor.Site))
-                || rec.Website || rec['WEBSITE'] || rec.URL || rec.Site || rec.website;
-            return candidate || null;
-        };
-        const getEmail = (rec) => rec && (rec['E-Mail'] || rec['Email'] || rec['EMAIL'] || rec.email) || null;
-        const getName = (rec) => rec && (rec.Name || rec['Company Name'] || rec['COMPANY'] || rec['Empresa'] || rec['Distributor']) || null;
-        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY']) || null;
-        const getCreatedAt = (rec) => {
-            const created = rec && (rec.Created_At || rec['Created At'] || rec.DATE || rec['Date']);
-            const t = created ? new Date(created).getTime() : 0;
-            return Number.isFinite(t) ? t : 0;
-        };
-        const canonicalCountry = (c) => {
-            const v = String(c || '').trim().toUpperCase();
-            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
-            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
-            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
-            return 'US';
-        };
-
-        // Agrupar por chave e manter o mais recente
-        const groups = new Map();
-        const deletions = new Set();
-        for (const rec of all) {
-            const host = normalizeHost(getWebsite(rec));
-            const email = normalizeEmail(getEmail(rec));
-            const name = normalizeText(getName(rec));
-            const country = normalizeText(getCountry(rec));
-            let key = null;
-            if (host) key = `w:${host}`; else if (email) key = `e:${email}`; else if (name) key = `n:${name}|${country || ''}`; else key = `obj:${JSON.stringify(rec).length}`;
-            const prev = groups.get(key);
-            if (!prev) {
-                groups.set(key, rec);
-            } else {
-                const tPrev = getCreatedAt(prev);
-                const tCur = getCreatedAt(rec);
-                if (tCur >= tPrev) {
-                    deletions.add(prev);
-                    groups.set(key, rec);
-                } else {
-                    deletions.add(rec);
-                }
-            }
-        }
-
-        const kept = Array.from(groups.values());
-        const deletedCount = deletions.size;
-        const total = all.length;
-
-        // Separar por país e regravar nas abas correspondentes
-        const byCountry = { US: [], CA: [], MX: [] };
-        for (const r of kept) {
-            const code = canonicalCountry(getCountry(r));
-            r.Country = code;
-            byCountry[code].push(r);
-        }
-
-        // Escrever por país
-        const okUS = await writeExcelData(byCountry.US, 'US');
-        const okCA = await writeExcelData(byCountry.CA, 'CA');
-        const okMX = await writeExcelData(byCountry.MX, 'MX');
-
-        return res.json({
-            success: true,
-            message: 'Deduplicação no Excel concluída.',
-            result: { total, deleted: deletedCount, kept: kept.length },
-            writes: { US: okUS, CA: okCA, MX: okMX }
-        });
-    } catch (err) {
-        console.error('Erro em /admin/deduplicate-excel:', err);
-        return res.status(500).json({ success: false, message: 'Falha ao deduplicar Excel', error: err.message });
-    }
-});
-
-// Variante aberta em desenvolvimento para acionar a deduplicação no Excel sem autenticação
-app.get('/api/deduplicate-excel-open', async (req, res) => {
-    try {
-        if (process.env.NODE_ENV !== 'development') {
-            return res.status(403).json({ success: false, message: 'Disponível apenas em desenvolvimento' });
-        }
-        if (process.env.FORCE_LOCAL_EXCEL !== '1') {
-            return res.status(403).json({ success: false, message: 'Disponível apenas quando FORCE_LOCAL_EXCEL=1' });
-        }
-        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-        if (useDb) {
-            return res.status(400).json({ success: false, message: 'Fonte atual é banco de dados. Use /admin/deduplicate-suppliers.' });
-        }
-
-        // Reaproveitar lógica da rota admin
-        const all = await readExcelData('ALL');
-        if (!Array.isArray(all) || all.length === 0) {
-            return res.json({ success: true, message: 'Nada a deduplicar (Excel vazio).', result: { total: 0, deleted: 0, kept: 0 } });
-        }
-
-        const normalizeHost = (s) => {
-            let w = String(s || '').trim().toLowerCase();
-            if (!w) return null;
-            try {
-                if (/^https?:\/\//.test(w)) {
-                    const u = new URL(w);
-                    w = u.hostname;
-                } else {
-                    w = w.replace(/^www\./, '').split('/')[0];
-                }
-            } catch (_) {
-                w = w.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-            }
-            w = w.replace(/:\d+$/, '');
-            w = w.replace(/\.$/, '');
-            return w || null;
-        };
-        const normalizeEmail = (e) => { if (!e) return null; return String(e).trim().toLowerCase(); };
-        const normalizeText = (t) => { if (!t) return null; return String(t).trim().toLowerCase(); };
-        const getWebsite = (rec) => {
-            if (!rec) return null;
-            const candidate = (rec.distributor && (rec.distributor.Website || rec.distributor['WEBSITE'] || rec.distributor.URL || rec.distributor.Site))
-                || rec.Website || rec['WEBSITE'] || rec.URL || rec.Site || rec.website;
-            return candidate || null;
-        };
-        const getEmail = (rec) => rec && (rec['E-Mail'] || rec['Email'] || rec['EMAIL'] || rec.email) || null;
-        const getName = (rec) => rec && (rec.Name || rec['Company Name'] || rec['COMPANY'] || rec['Empresa'] || rec['Distributor']) || null;
-        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY']) || null;
-        const getCreatedAt = (rec) => {
-            const created = rec && (rec.Created_At || rec['Created At'] || rec.DATE || rec['Date']);
-            const t = created ? new Date(created).getTime() : 0;
-            return Number.isFinite(t) ? t : 0;
-        };
-        const canonicalCountry = (c) => {
-            const v = String(c || '').trim().toUpperCase();
-            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
-            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
-            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
-            return 'US';
-        };
-
-        const groups = new Map();
-        const deletions = new Set();
-        for (const rec of all) {
-            const host = normalizeHost(getWebsite(rec));
-            const email = normalizeEmail(getEmail(rec));
-            const name = normalizeText(getName(rec));
-            const country = normalizeText(getCountry(rec));
-            let key = null;
-            if (host) key = `w:${host}`; else if (email) key = `e:${email}`; else if (name) key = `n:${name}|${country || ''}`; else key = `obj:${JSON.stringify(rec).length}`;
-            const prev = groups.get(key);
-            if (!prev) {
-                groups.set(key, rec);
-            } else {
-                const tPrev = getCreatedAt(prev);
-                const tCur = getCreatedAt(rec);
-                if (tCur >= tPrev) {
-                    deletions.add(prev);
-                    groups.set(key, rec);
-                } else {
-                    deletions.add(rec);
-                }
-            }
-        }
-
-        const kept = Array.from(groups.values());
-        const deletedCount = deletions.size;
-        const total = all.length;
-
-        const byCountry = { US: [], CA: [], MX: [] };
-        for (const r of kept) {
-            const code = canonicalCountry(getCountry(r));
-            r.Country = code;
-            byCountry[code].push(r);
-        }
-
-        const okUS = await writeExcelData(byCountry.US, 'US');
-        const okCA = await writeExcelData(byCountry.CA, 'CA');
-        const okMX = await writeExcelData(byCountry.MX, 'MX');
-
-        return res.json({ success: true, message: 'Deduplicação no Excel concluída (open).', result: { total, deleted: deletedCount, kept: kept.length }, writes: { US: okUS, CA: okCA, MX: okMX } });
-    } catch (err) {
-        console.error('Erro em /api/deduplicate-excel-open:', err);
-        return res.status(500).json({ success: false, message: 'Falha ao deduplicar Excel (open)', error: err.message });
-    }
-});
+// (Removida) variante aberta de deduplicação do Excel — sem suporte a Excel local
 
 // Rota admin para persistir no Excel: tudo que estiver associado a "Nacho" passa a
 // ter Created_By_* como Ignacio (ignaciocortez@mylokok.com) de forma permanente.
-app.get('/admin/fix-nacho-createdby', requireAuth, requireAdmin, async (req, res) => {
-    try {
-        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-        if (useDb) {
-            return res.status(400).json({ success: false, message: 'Fonte atual é banco de dados. Esta operação atua diretamente no Excel.' });
-        }
-
-        const all = await readExcelData('ALL');
-        if (!Array.isArray(all) || all.length === 0) {
-            return res.json({ success: true, message: 'Nada a atualizar (Excel vazio).', total: 0, updated: 0 });
-        }
-
-        // Obter usuário do Ignacio/Nacho
-        const targetEmail = 'ignaciocortez@mylokok.com';
-        const users = userRepository.findAll ? userRepository.findAll() : [];
-        const nachoUser = users.find(u => String(u.email || '').toLowerCase() === targetEmail)
-            || users.find(u => String(u.name || '').toLowerCase() === 'nacho');
-        if (!nachoUser) {
-            return res.status(404).json({ success: false, message: 'Usuário Ignacio/Nacho não encontrado em users.json.' });
-        }
-
-        // Enriquecer em memória usando helper já existente
-        let beforeNachoCount = 0;
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const emailLc = String(rec && rec.Created_By_User_Email || '').trim().toLowerCase();
-            if (emailLc === String(nachoUser.email || '').trim().toLowerCase()) beforeNachoCount++;
-        }
-        enrichCreatedByForNacho(all);
-        let afterNachoCount = 0;
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const emailLc = String(rec && rec.Created_By_User_Email || '').trim().toLowerCase();
-            if (emailLc === String(nachoUser.email || '').trim().toLowerCase()) afterNachoCount++;
-        }
-        const updated = Math.max(0, afterNachoCount - beforeNachoCount);
-
-        // Particionar por país e gravar nas abas correspondentes
-        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY']) || null;
-        const canonicalCountry = (c) => {
-            const v = String(c || '').trim().toUpperCase();
-            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
-            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
-            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
-            return 'US';
-        };
-        const byCountry = { US: [], CA: [], MX: [] };
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const code = canonicalCountry(getCountry(rec));
-            rec.Country = code;
-            byCountry[code].push(rec);
-        }
-
-        const okUS = await writeExcelData(byCountry.US, 'US');
-        const okCA = await writeExcelData(byCountry.CA, 'CA');
-        const okMX = await writeExcelData(byCountry.MX, 'MX');
-
-        return res.json({
-            success: true,
-            message: 'Persistência concluída: registros de "Nacho" agora aparecem como criados por Ignacio.',
-            total: all.length,
-            nachoCreatedBefore: beforeNachoCount,
-            nachoCreatedAfter: afterNachoCount,
-            updated,
-            writes: { US: okUS, CA: okCA, MX: okMX }
-        });
-    } catch (err) {
-        console.error('Erro em /admin/fix-nacho-createdby:', err);
-        return res.status(500).json({ success: false, message: 'Falha ao persistir Created_By_* para Nacho/Igancio', error: err.message });
-    }
-});
+// (Removida) rota admin de fix para Nacho — Excel local não suportado
 
 // Variante aberta em desenvolvimento para acionar a persistência sem autenticação
-app.get('/api/fix-nacho-createdby-open', async (req, res) => {
-    try {
-        if ((process.env.NODE_ENV || 'development') !== 'development') {
-            return res.status(403).json({ success: false, message: 'Disponível apenas em desenvolvimento' });
-        }
-        const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
-        if (useDb) {
-            return res.status(400).json({ success: false, message: 'Fonte atual é banco de dados. Esta operação atua diretamente no Excel.' });
-        }
-
-        const all = await readExcelData('ALL');
-        if (!Array.isArray(all) || all.length === 0) {
-            return res.json({ success: true, message: 'Nada a atualizar (Excel vazio).', total: 0, updated: 0 });
-        }
-
-        const targetEmail = 'ignaciocortez@mylokok.com';
-        const users = userRepository.findAll ? userRepository.findAll() : [];
-        const nachoUser = users.find(u => String(u.email || '').toLowerCase() === targetEmail)
-            || users.find(u => String(u.name || '').toLowerCase() === 'nacho');
-        if (!nachoUser) {
-            return res.status(404).json({ success: false, message: 'Usuário Ignacio/Nacho não encontrado em users.json.' });
-        }
-
-        let beforeNachoCount = 0;
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const emailLc = String(rec && rec.Created_By_User_Email || '').trim().toLowerCase();
-            if (emailLc === String(nachoUser.email || '').trim().toLowerCase()) beforeNachoCount++;
-        }
-        enrichCreatedByForNacho(all);
-        let afterNachoCount = 0;
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const emailLc = String(rec && rec.Created_By_User_Email || '').trim().toLowerCase();
-            if (emailLc === String(nachoUser.email || '').trim().toLowerCase()) afterNachoCount++;
-        }
-        const updated = Math.max(0, afterNachoCount - beforeNachoCount);
-
-        const getCountry = (rec) => rec && (rec.Country || rec['COUNTRY']) || null;
-        const canonicalCountry = (c) => {
-            const v = String(c || '').trim().toUpperCase();
-            if (['US','USA','UNITED STATES'].includes(v)) return 'US';
-            if (['CA','CAN','CANADA'].includes(v)) return 'CA';
-            if (['MX','MEX','MEXICO'].includes(v)) return 'MX';
-            return 'US';
-        };
-        const byCountry = { US: [], CA: [], MX: [] };
-        for (const r of all) {
-            const rec = r && r.distributor ? r.distributor : r;
-            const code = canonicalCountry(getCountry(rec));
-            rec.Country = code;
-            byCountry[code].push(rec);
-        }
-
-        const okUS = await writeExcelData(byCountry.US, 'US');
-        const okCA = await writeExcelData(byCountry.CA, 'CA');
-        const okMX = await writeExcelData(byCountry.MX, 'MX');
-
-        return res.json({
-            success: true,
-            message: 'Persistência concluída (open): registros de "Nacho" agora aparecem como criados por Ignacio.',
-            total: all.length,
-            nachoCreatedBefore: beforeNachoCount,
-            nachoCreatedAfter: afterNachoCount,
-            updated,
-            writes: { US: okUS, CA: okCA, MX: okMX }
-        });
-    } catch (err) {
-        console.error('Erro em /api/fix-nacho-createdby-open:', err);
-        return res.status(500).json({ success: false, message: 'Falha ao persistir Created_By_* (open)', error: err.message });
-    }
-});
+// (Removida) variante aberta de fix para Nacho — Excel local não suportado

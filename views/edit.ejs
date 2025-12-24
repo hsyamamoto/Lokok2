@@ -209,6 +209,34 @@
                 </div>
             </div>
 
+            <!-- Notes & Comments -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-sticky-note mr-2 text-gray-600"></i>
+                    Notes & Comments
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Description/Notes -->
+                    <div>
+                        <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-note-sticky mr-2 text-gray-500"></i>
+                            Description/Notes
+                        </label>
+                        <textarea id="description" name="description" rows="3"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-sky-300 focus:border-sky-300 transition-colors duration-200 resize-none"><%= record['Description/Notes'] || '' %></textarea>
+                    </div>
+                    <!-- Comments -->
+                    <div>
+                        <label for="comments" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-comments mr-2 text-gray-500"></i>
+                            Comments
+                        </label>
+                        <textarea id="comments" name="comments" rows="3"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 transition-colors duration-200 resize-none"><%= record['Comments'] || '' %></textarea>
+                    </div>
+                </div>
+            </div>
+
             <!-- Contact Information -->
             <div class="mb-8">
                 <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
@@ -262,6 +290,18 @@
                                value="<%= record.Address || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                     </div>
+                    <div>
+                        <label for="warehouseZoneFound" class="block text-sm font-medium text-gray-700 mb-2">
+                            Did you find a warehouse or truckload zone during your map search?
+                        </label>
+                        <select id="warehouseZoneFound" name="warehouseZoneFound"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
+                            <% const wzf = String(record['Did you find a warehouse or truckload zone during your map search?'] || '').trim(); %>
+                            <option value="" <%= wzf === '' ? 'selected' : '' %>>Select...</option>
+                            <option value="Yes" <%= wzf === 'Yes' ? 'selected' : '' %>>Yes</option>
+                            <option value="No2" <%= wzf === 'No2' ? 'selected' : '' %>>No2</option>
+                        </select>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
                         <div>
                             <label for="city" class="block text-sm font-medium text-gray-700 mb-2">
@@ -299,6 +339,151 @@
                                    value="<%= record['Zip Code'] || '' %>"
                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Access Information -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-key mr-2 text-violet-600"></i>
+                    Access Information
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="user" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-user-plus mr-2 text-gray-500"></i>
+                            Registered User
+                        </label>
+                        <input type="text" id="user" name="user" value="<%= record.User || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-300 focus:border-violet-300 transition-colors duration-200 font-mono">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-key mr-2 text-gray-500"></i>
+                            Registered Password
+                        </label>
+                        <input type="text" id="password" name="password" value="<%= record['PASSWORD'] || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors duration-200 font-mono">
+                    </div>
+
+                    <!-- Inventory List (como obtemos a lista) -->
+                    <div>
+                        <label for="inventoryList" class="block text-sm font-medium text-gray-700 mb-2">
+                            Inventory List — how we get the inventory list
+                        </label>
+                        <select id="inventoryList" name="inventoryList"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-300 focus:border-violet-300 transition-colors duration-200">
+                            <% const invList = String(record['Inventory List'] || '').trim(); %>
+                            <option value="" <%= invList === '' ? 'selected' : '' %>>Select...</option>
+                            <option value="via Mail" <%= invList === 'via Mail' ? 'selected' : '' %>>via Mail</option>
+                            <option value="Download from website" <%= invList === 'Download from website' ? 'selected' : '' %>>Download from website</option>
+                            <option value="Download from Google Drive" <%= invList === 'Download from Google Drive' ? 'selected' : '' %>>Download from Google Drive</option>
+                            <option value="Webscraping" <%= invList === 'Webscraping' ? 'selected' : '' %>>Webscraping</option>
+                        </select>
+                    </div>
+
+                    <!-- Inventory List Comments -->
+                    <div>
+                        <label for="inventoryListComments" class="block text-sm font-medium text-gray-700 mb-2">
+                            Inventory List — comments
+                        </label>
+                        <textarea id="inventoryListComments" name="inventoryListComments" rows="3"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-300 focus:border-violet-300 transition-colors duration-200"><%= (record['Inventory List Comments'] || '') %></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Type -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-industry mr-2 text-gray-600"></i>
+                    Type
+                </h2>
+                <div class="grid grid-cols-1 gap-6">
+                    <div>
+                        <label for="type" class="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                        <select id="type" name="type"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-colors duration-200">
+                            <option value="" <%= !record.Type ? 'selected' : '' %>>Select...</option>
+                            <option value="Brand" <%= record.Type === 'Brand' ? 'selected' : '' %>>Brand</option>
+                            <option value="Distributor" <%= record.Type === 'Distributor' ? 'selected' : '' %>>Distributor</option>
+                            <option value="Retailer" <%= record.Type === 'Retailer' ? 'selected' : '' %>>Retailer</option>
+                            <option value="Brand and Distributor" <%= record.Type === 'Brand and Distributor' ? 'selected' : '' %>>Brand and Distributor</option>
+                            <option value="N/A" <%= record.Type === 'N/A' ? 'selected' : '' %>>N/A</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Email Communication -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-envelope-open-text mr-2 text-rose-600"></i>
+                    Email Communication
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label for="firstEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
+                            1º e-mail enviado
+                        </label>
+                        <input type="date" id="firstEmailDate" name="firstEmailDate" value="<%= record['First Email Sent'] || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">
+                    </div>
+                    <div>
+                        <label for="secondEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
+                            2º e-mail enviado
+                        </label>
+                        <input type="date" id="secondEmailDate" name="secondEmailDate" value="<%= record['Second Email Sent'] || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">
+                    </div>
+                    <div>
+                        <label for="thirdEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
+                            3º e-mail enviado
+                        </label>
+                        <input type="date" id="thirdEmailDate" name="thirdEmailDate" value="<%= record['Third Email Sent'] || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Additional Settings -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-sliders-h mr-2 text-amber-500"></i>
+                    Additional Settings
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="llamar" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-phone-alt mr-2 text-gray-500"></i>
+                            LLAMAR
+                        </label>
+                        <input type="text" id="llamar" name="llamar" value="<%= record['LLAMAR'] || '' %>"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 transition-colors duration-200">
+                    </div>
+                    <div>
+                        <label for="prioridade" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-star mr-2 text-gray-500"></i>
+                            Priority (1 - TOP, 5 - bajo)
+                        </label>
+                        <select id="prioridade" name="prioridade"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 transition-colors duration-200">
+                            <option value="">Select...</option>
+                            <option value="1" <%= (String(record['PRIO (1 - TOP, 5 - bajo)']||'').trim()==='1' || String(record['PRIO (1 - TOP, 5 - bajo)']||'').toLowerCase()==='high') ? 'selected' : '' %>>1 - TOP (High)</option>
+                            <option value="2" <%= String(record['PRIO (1 - TOP, 5 - bajo)']||'').trim()==='2' ? 'selected' : '' %>>2</option>
+                            <option value="3" <%= String(record['PRIO (1 - TOP, 5 - bajo)']||'').trim()==='3' ? 'selected' : '' %>>3</option>
+                            <option value="4" <%= String(record['PRIO (1 - TOP, 5 - bajo)']||'').trim()==='4' ? 'selected' : '' %>>4</option>
+                            <option value="5" <%= (String(record['PRIO (1 - TOP, 5 - bajo)']||'').trim()==='5' || String(record['PRIO (1 - TOP, 5 - bajo)']||'').toLowerCase()==='low') ? 'selected' : '' %>>5 - bajo (Low)</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label for="comments" class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-comment-dots mr-2 text-gray-500"></i>
+                            Comments
+                        </label>
+                        <textarea id="comments" name="comments" rows="3"
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 transition-colors duration-200 resize-none"><%= record['Comments'] || '' %></textarea>
                     </div>
                 </div>
             </div>

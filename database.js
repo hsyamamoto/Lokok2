@@ -24,6 +24,9 @@ async function createTables() {
       )
     `);
 
+    // Garantir colunas modernas para o modelo atual (email, name, allowed_countries, password_hash, timestamps, is_active)
+    await ensureUsersTable(client);
+
     // Tabela de fornecedores (dados do Excel)
     await client.query(`
       CREATE TABLE IF NOT EXISTS suppliers (
@@ -57,58 +60,7 @@ async function createTables() {
   }
 }
 
-// Função para migrar dados do Excel para PostgreSQL
-async function migrateExcelData() {
-  const excelPath = process.env.EXCEL_PATH || './data/Wholesale Suppliers and Product Opportunities.xlsx';
-  
-  if (!fs.existsSync(excelPath)) {
-    console.log('Arquivo Excel não encontrado. Pulando migração.');
-    return;
-  }
-
-  const workbook = xlsx.readFile(excelPath);
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[sheetName];
-  const data = xlsx.utils.sheet_to_json(worksheet);
-
-  const client = await pool.connect();
-  try {
-    // Limpar dados existentes
-    await client.query('DELETE FROM suppliers');
-    
-    for (const row of data) {
-      await client.query(`
-        INSERT INTO suppliers (
-          company_name, contact_person, email, phone, website,
-          country, state, city, address, products, categories,
-          minimum_order, payment_terms, certifications, notes
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      `, [
-        row['Company Name'] || '',
-        row['Contact Person'] || '',
-        row['Email'] || '',
-        row['Phone'] || '',
-        row['Website'] || '',
-        row['Country'] || '',
-        row['State/Province'] || '',
-        row['City'] || '',
-        row['Address'] || '',
-        row['Products/Services'] || '',
-        row['Product Categories'] || '',
-        row['Minimum Order'] || '',
-        row['Payment Terms'] || '',
-        row['Certifications'] || '',
-        row['Notes'] || ''
-      ]);
-    }
-    
-    console.log(`${data.length} registros migrados com sucesso!`);
-  } catch (err) {
-    console.error('Erro na migração:', err);
-  } finally {
-    client.release();
-  }
-}
+// (Removida) migração direta para tabela legacy suppliers baseada em EXCEL_PATH
 
 // Função para criar usuários iniciais
 async function createInitialUsers() {
@@ -140,6 +92,43 @@ async function createInitialUsers() {
   }
 }
 
+// Garante que a tabela users possui as colunas esperadas pelo app atual
+async function ensureUsersTable(clientMaybe) {
+  const client = clientMaybe || (await pool.connect());
+  let needRelease = !clientMaybe;
+  try {
+    const alter = async (sql) => {
+      try { await client.query(sql); } catch (e) {
+        // ignora erros não críticos (ex.: tipos diferentes em bases antigas)
+        if (!String(e?.message || '').includes('already exists')) {
+          console.warn('ensureUsersTable aviso:', e?.message || e);
+        }
+      }
+    };
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE");
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(255)");
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_countries TEXT[]");
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)");
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE");
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+    // Manter compatibilidade com endpoints legados que consultam username
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(50) UNIQUE");
+    // Ajustar coluna role para valores atuais (apenas garantir existência)
+    await alter("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20)");
+    // Tornar coluna legada password opcional para compatibilidade com novo modelo
+    try {
+      await client.query("ALTER TABLE users ALTER COLUMN password DROP NOT NULL");
+    } catch (e) {
+      if (!String(e?.message || '').includes('column "password" of relation "users" does not exist')) {
+        console.warn('ensureUsersTable aviso (DROP NOT NULL password):', e?.message || e);
+      }
+    }
+  } finally {
+    if (needRelease) client.release();
+  }
+}
+
+
 // Função principal de inicialização
 async function initializeDatabase() {
   try {
@@ -148,7 +137,9 @@ async function initializeDatabase() {
     await createInitialUsers();
     await createJsonTable();
 
-    // Idempotência: só reseedar do Excel se tabela estiver vazia
+    // Migração antiga baseada em arquivo foi removida. Sistema usa apenas banco.
+
+    // Idempotência: só reseedar da planilha do Google Drive se tabela estiver vazia
     // ou quando explicitamente permitido por ALLOW_RESEED=1
     const client = await pool.connect();
     let existingCount = 0;
@@ -165,8 +156,8 @@ async function initializeDatabase() {
     if (existingCount > 0 && !allowReseed) {
       console.log(`Tabela suppliers_json já populada (registros: ${existingCount}). Pulando reseed do Excel.`);
     } else {
-      console.log('Migração para suppliers_json a partir do Excel...');
-      await migrateExcelToJson();
+      console.log('Migração para suppliers_json a partir do Google Drive...');
+      await migrateDriveToJson();
     }
 
     // Deduplicação opcional: pula se SKIP_DEDUP=1
@@ -187,9 +178,10 @@ async function initializeDatabase() {
 module.exports = {
   pool,
   createTables,
-  migrateExcelData,
   createInitialUsers,
-  initializeDatabase
+  initializeDatabase,
+  ensureUsersTable,
+  // Migração baseada em arquivo removida
 };
 
 // -----------------------------
@@ -226,57 +218,48 @@ async function createJsonTable() {
  * Seed JSONB table from Excel, preserving original headers.
  * - If a country can be inferred from the sheet name, it is set.
  */
-async function migrateExcelToJson() {
-  const excelPath = process.env.EXCEL_PATH || path.join(process.cwd(), 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
+// Migração para suppliers_json lendo diretamente do Google Drive
+async function migrateDriveToJson() {
+  const GoogleDriveService = require('./googleDriveService');
+  const service = new GoogleDriveService();
 
-  if (!excelPath || !fs.existsSync(excelPath)) {
-    console.log('Arquivo Excel não encontrado para migração JSON. Pulando.');
-    return;
-  }
-
-  const workbook = xlsx.readFile(excelPath);
   const client = await pool.connect();
   try {
-    // Clear existing data before seeding
     await client.query('DELETE FROM suppliers_json');
 
     const canonicalizeCountry = (value) => {
       if (!value) return null;
       let v = String(value).trim().toLowerCase();
-      // Map common synonyms to ISO codes
       if (v === 'us' || v === 'u.s.' || v === 'usa' || v.includes('united states')) return 'US';
       if (v === 'ca' || v.includes('canada')) return 'CA';
       if (v === 'mx' || v.includes('mexico')) return 'MX';
       if (v === 'cn' || v.includes('china')) return 'CN';
-      // If already a 2-letter code, return uppercased
       if (v.length === 2) return v.toUpperCase();
       return null;
     };
 
-    for (const sheetName of workbook.SheetNames) {
-      const ws = workbook.Sheets[sheetName];
-      if (!ws) continue;
-      const rows = xlsx.utils.sheet_to_json(ws);
-
-      // Infer country from sheet name if it matches expected naming
-      let inferredCountry = null;
-      const normalized = sheetName.trim().toLowerCase();
-      if (normalized.includes('lokok') || normalized.includes('usa') || normalized.includes('united states')) inferredCountry = 'US';
-      else if (normalized.includes('canada')) inferredCountry = 'CA';
-      else if (normalized.includes('mexico')) inferredCountry = 'MX';
-      else if (normalized.includes('china')) inferredCountry = 'CN';
-
+    const countries = ['US','CA','MX','CN'];
+    for (const c of countries) {
+      let rows = [];
+      try {
+        rows = await service.readSpreadsheetData(c);
+      } catch (e) {
+        console.warn(`Aviso: falha ao ler sheet do país ${c}:`, e?.message || e);
+        rows = [];
+      }
       for (const row of rows) {
-        const country = canonicalizeCountry(inferredCountry || row.Country) || null;
+        const country = canonicalizeCountry(row.Country || c) || c;
         await client.query(
           `INSERT INTO suppliers_json (country, data) VALUES ($1, $2)`,
           [country, row]
         );
       }
+      console.log(`Seed Drive: país ${c} -> ${rows.length} registros.`);
     }
-    console.log('Migração para suppliers_json concluída com sucesso.');
+
+    console.log('Migração para suppliers_json a partir do Google Drive concluída com sucesso.');
   } catch (err) {
-    console.error('Erro ao migrar para suppliers_json:', err);
+    console.error('Erro ao migrar do Google Drive para suppliers_json:', err);
   } finally {
     client.release();
   }
@@ -290,11 +273,16 @@ async function getJsonSuppliers(countries) {
   try {
     let result;
     if (Array.isArray(countries) && countries.length > 0) {
-      result = await client.query(`SELECT data FROM suppliers_json WHERE country = ANY($1)`, [countries]);
+      result = await client.query(`SELECT id, country, data FROM suppliers_json WHERE country = ANY($1)`, [countries]);
     } else {
-      result = await client.query(`SELECT data FROM suppliers_json`);
+      result = await client.query(`SELECT id, country, data FROM suppliers_json`);
     }
-    return result.rows.map(r => r.data);
+    // Merge DB id/country into the data object so the app can perform precise updates/deletions
+    return result.rows.map(r => ({
+      ...r.data,
+      _dbId: r.id,
+      _dbCountry: r.country || (r.data && (r.data.Country || r.data['COUNTRY'])) || null,
+    }));
   } catch (err) {
     console.error('Erro ao consultar suppliers_json:', err);
     return [];
@@ -325,7 +313,7 @@ async function insertJsonSupplier(record, country, createdByUser) {
 
 // Export new helpers
 module.exports.createJsonTable = createJsonTable;
-module.exports.migrateExcelToJson = migrateExcelToJson;
+module.exports.migrateDriveToJson = migrateDriveToJson;
 module.exports.getJsonSuppliers = getJsonSuppliers;
 module.exports.insertJsonSupplier = insertJsonSupplier;
 /**
@@ -337,6 +325,21 @@ module.exports.insertJsonSupplier = insertJsonSupplier;
 async function updateJsonSupplier(oldRecord, updatedRecord, countryHint) {
   const client = await pool.connect();
   try {
+    // Prefer exact match by DB id when available to avoid multi-updates
+    const idFromOld = oldRecord && (oldRecord._dbId || oldRecord.id);
+    const idFromNew = updatedRecord && (updatedRecord._dbId || updatedRecord.id);
+    const targetId = idFromNew || idFromOld;
+    if (targetId && Number(targetId) > 0) {
+      const resById = await client.query(
+        `UPDATE suppliers_json SET data = $1, updated_at = NOW() WHERE id = $2 RETURNING id`,
+        [updatedRecord, Number(targetId)]
+      );
+      if (resById.rowCount > 0) {
+        return true;
+      }
+      // if id path failed, continue with legacy matching below
+    }
+
     const toStr = (v) => (v === undefined || v === null) ? null : String(v).trim();
     const toLower = (v) => (v === undefined || v === null) ? null : String(v).trim().toLowerCase();
     const normalizeCountryAliases = (raw) => {
@@ -455,6 +458,19 @@ module.exports.updateJsonSupplier = updateJsonSupplier;
 async function deleteJsonSupplier(oldRecord, countryHint) {
   const client = await pool.connect();
   try {
+    // Prefer exact delete by DB id when available to avoid multi-deletions
+    const idFromOld = oldRecord && (oldRecord._dbId || oldRecord.id);
+    if (idFromOld && Number(idFromOld) > 0) {
+      const resById = await client.query(
+        `DELETE FROM suppliers_json WHERE id = $1 RETURNING id`,
+        [Number(idFromOld)]
+      );
+      if (resById.rowCount > 0) {
+        return true;
+      }
+      // if id path failed, continue with legacy matching below
+    }
+
     const toStr = (v) => (v === undefined || v === null) ? null : String(v).trim();
     const toLower = (v) => (v === undefined || v === null) ? null : String(v).trim().toLowerCase();
 
@@ -466,17 +482,44 @@ async function deleteJsonSupplier(oldRecord, countryHint) {
     ].filter(Boolean);
 
     if (createdCandidates.length > 0) {
-      const res = await client.query(
-        `DELETE FROM suppliers_json
-         WHERE (data->>'Created_At' = ANY($1)
-             OR data->>'Created At' = ANY($1)
-             OR data->>'DATE' = ANY($1)
-             OR data->>'Date' = ANY($1))
-         RETURNING id`,
-        [createdCandidates]
+      // Make timestamp match safer by also constraining by Name + Country when present
+      const nameLc = toLower(
+        oldRecord?.Name
+        || oldRecord?.['Company Name']
+        || oldRecord?.['COMPANY']
+        || oldRecord?.['Empresa']
+        || oldRecord?.['Distributor']
       );
-      if (res.rowCount > 0) {
-        return true;
+      const countryLc = toLower(countryHint || oldRecord?.Country || oldRecord?.['COUNTRY']);
+      if (nameLc && countryLc) {
+        const res = await client.query(
+          `DELETE FROM suppliers_json
+           WHERE (data->>'Created_At' = ANY($1)
+               OR data->>'Created At' = ANY($1)
+               OR data->>'DATE' = ANY($1)
+               OR data->>'Date' = ANY($1))
+             AND LOWER(COALESCE(data->>'Name', data->>'Company Name', data->>'COMPANY', data->>'Empresa', data->>'Distributor')) = $2
+             AND LOWER(COALESCE(country, data->>'Country', data->>'COUNTRY')) = $3
+           RETURNING id`,
+          [createdCandidates, nameLc, countryLc]
+        );
+        if (res.rowCount > 0) {
+          return true;
+        }
+      } else {
+        // Fall back to pure timestamp delete if no identity context is available
+        const res = await client.query(
+          `DELETE FROM suppliers_json
+           WHERE (data->>'Created_At' = ANY($1)
+               OR data->>'Created At' = ANY($1)
+               OR data->>'DATE' = ANY($1)
+               OR data->>'Date' = ANY($1))
+           RETURNING id`,
+          [createdCandidates]
+        );
+        if (res.rowCount > 0) {
+          return true;
+        }
       }
     }
 

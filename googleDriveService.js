@@ -1,6 +1,4 @@
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const XLSX = require('xlsx');
 
 class GoogleDriveService {
@@ -8,8 +6,7 @@ class GoogleDriveService {
         this.fileId = process.env.GOOGLE_DRIVE_FILE_ID;
         this.email = process.env.GOOGLE_DRIVE_EMAIL;
         this.password = process.env.GOOGLE_DRIVE_PASSWORD;
-        this.localCachePath = path.join(__dirname, 'data', 'cached_spreadsheet.xlsx');
-        this.cacheMaxAge = 5 * 60 * 1000; // 5 minutos em milliseconds
+        // Removido cache/local: leitura sempre direto do Google Drive
     }
 
     /**
@@ -22,7 +19,7 @@ class GoogleDriveService {
             if (Array.isArray(headerRow) && headerRow.length > 0) return headerRow;
         } catch (_) {}
         return [
-            'Name','Website','CATEGORÍA','Account Request Status','DATE','Responsable',
+            'Name','Website','CATEGORÍA','Type','Account Request Status','DATE','Responsable',
             'STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)',
             'Description/Notes','Contact Name','Contact Phone','E-Mail','Address','User','PASSWORD',
             'LLAMAR','PRIO (1 - TOP, 5 - baixo)','Comments','Country','Created_By_User_ID','Created_By_User_Name','Created_At'
@@ -88,25 +85,7 @@ class GoogleDriveService {
         return `https://drive.google.com/uc?export=download&id=${this.fileId}`;
     }
 
-    /**
-     * Verifica se o cache local é válido
-     */
-    isCacheValid() {
-        try {
-            if (!fs.existsSync(this.localCachePath)) {
-                return false;
-            }
-            
-            const stats = fs.statSync(this.localCachePath);
-            const now = new Date().getTime();
-            const fileTime = new Date(stats.mtime).getTime();
-            
-            return (now - fileTime) < this.cacheMaxAge;
-        } catch (error) {
-            console.error('Erro ao verificar cache:', error);
-            return false;
-        }
-    }
+    // Cache local removido
 
     /**
      * Baixa a planilha do Google Drive
@@ -161,69 +140,19 @@ class GoogleDriveService {
                     throw new Error('Não foi possível extrair link de download da página de confirmação');
                 }
             }
-
-            // Criar diretório data se não existir
-            const dataDir = path.dirname(this.localCachePath);
-            if (!fs.existsSync(dataDir)) {
-                fs.mkdirSync(dataDir, { recursive: true });
-            }
-
-            // Salvar arquivo localmente
-            fs.writeFileSync(this.localCachePath, response.data);
-            
-            console.log('✅ [PRODUCTION DEBUG] Planilha baixada e salva em cache');
-            console.log('✅ [PRODUCTION DEBUG] Arquivo salvo em:', this.localCachePath);
-            return this.localCachePath;
+            console.log('✅ [PRODUCTION DEBUG] Planilha baixada em memória');
+            return Buffer.from(response.data);
             
         } catch (error) {
             console.error('❌ Erro ao baixar planilha do Google Drive:', error.message);
-            
-            // Se falhar, tentar usar cache antigo se existir
-            if (fs.existsSync(this.localCachePath)) {
-                console.log('⚠️ Usando cache antigo da planilha');
-                return this.localCachePath;
-            }
-            
-            // Tentar usar arquivo local como fallback
-            const localFallbackPath = path.join(__dirname, 'data', 'Wholesale Suppliers and Product Opportunities.xlsx');
-            if (fs.existsSync(localFallbackPath)) {
-                console.log('📁 Usando arquivo local como fallback...');
-                
-                // Criar diretório cache se não existir
-                const cacheDir = path.dirname(this.localCachePath);
-                if (!fs.existsSync(cacheDir)) {
-                    fs.mkdirSync(cacheDir, { recursive: true });
-                }
-                
-                // Copiar arquivo local para cache
-                fs.copyFileSync(localFallbackPath, this.localCachePath);
-                console.log('✅ Arquivo local copiado para cache');
-                return this.localCachePath;
-            }
-            
-            throw new Error('Não foi possível baixar a planilha e não há arquivo local disponível');
+            throw new Error('Não foi possível baixar a planilha do Google Drive');
         }
     }
 
     /**
      * Obtém o caminho da planilha (baixa se necessário)
      */
-    async getSpreadsheetPath() {
-        try {
-            // Verificar se o cache é válido
-            if (this.isCacheValid()) {
-                console.log('📋 Usando planilha em cache');
-                return this.localCachePath;
-            }
-
-            // Cache inválido ou inexistente, baixar nova versão
-            return await this.downloadSpreadsheet();
-            
-        } catch (error) {
-            console.error('Erro ao obter planilha:', error);
-            throw error;
-        }
-    }
+    // getSpreadsheetPath removido (uso direto do buffer)
 
     /**
      * Lê os dados da planilha
@@ -231,41 +160,19 @@ class GoogleDriveService {
     async readSpreadsheetData(selectedCountry) {
         try {
             console.log('📖 [PRODUCTION DEBUG] Iniciando leitura dos dados da planilha...');
-            const spreadsheetPath = await this.getSpreadsheetPath();
-            
-            console.log('📖 [PRODUCTION DEBUG] Caminho da planilha:', spreadsheetPath);
-            console.log('📖 [PRODUCTION DEBUG] Arquivo existe:', fs.existsSync(spreadsheetPath));
-            
-            if (fs.existsSync(spreadsheetPath)) {
-                const stats = fs.statSync(spreadsheetPath);
-                console.log('📖 [PRODUCTION DEBUG] Tamanho do arquivo:', stats.size, 'bytes');
-                
-                // Verificar se o arquivo não está vazio
-                if (stats.size === 0) {
-                    throw new Error('Arquivo da planilha está vazio');
-                }
-                
-                // Verificar se o arquivo é realmente um Excel válido
-                const buffer = fs.readFileSync(spreadsheetPath);
-                const header = buffer.toString('utf8', 0, 100);
-                console.log('📖 [PRODUCTION DEBUG] Header do arquivo:', header.substring(0, 50));
-                
-                if (header.includes('<html') || header.includes('<!DOCTYPE')) {
-                    throw new Error('Arquivo contém HTML em vez de dados Excel');
-                }
+            const buffer = await this.downloadSpreadsheet();
+            console.log('📖 [PRODUCTION DEBUG] Tamanho do buffer:', buffer.length, 'bytes');
+            const header = buffer.toString('utf8', 0, 100);
+            console.log('📖 [PRODUCTION DEBUG] Header do buffer:', header.substring(0, 50));
+            if (header.includes('<html') || header.includes('<!DOCTYPE')) {
+                throw new Error('Resposta contém HTML em vez de dados Excel');
             }
-            
-            console.log('📖 [PRODUCTION DEBUG] Lendo arquivo Excel...');
-            const workbook = XLSX.readFile(spreadsheetPath);
+            console.log('📖 [PRODUCTION DEBUG] Lendo workbook a partir do buffer...');
+            const workbook = XLSX.read(buffer, { type: 'buffer' });
             // Garantir que existam abas específicas de país
             const ensured = this.ensureCountrySheets(workbook);
             if (ensured.changed) {
-                try {
-                    XLSX.writeFile(workbook, this.localCachePath);
-                    console.log('🔧 [PRODUCTION DEBUG] Abas de país garantidas e cache atualizado');
-                } catch (e) {
-                    console.warn('⚠️ [PRODUCTION DEBUG] Falha ao atualizar cache após garantir abas:', e?.message);
-                }
+                console.log('🔧 [PRODUCTION DEBUG] Abas de país garantidas');
             }
             const sheetNames = workbook.SheetNames || [];
             console.log('📖 [PRODUCTION DEBUG] Sheets disponíveis:', sheetNames);
@@ -309,60 +216,17 @@ class GoogleDriveService {
      * Salva dados na planilha (funcionalidade limitada - apenas local)
      * Nota: Para salvar no Google Drive seria necessário usar a API completa
      */
-    async saveSpreadsheetData(data, selectedCountry) {
-        try {
-            console.log('💾 Salvando dados na planilha local (cache)...');
-
-            let workbook;
-            if (fs.existsSync(this.localCachePath)) {
-                try {
-                    workbook = XLSX.readFile(this.localCachePath);
-                } catch (_) {
-                    workbook = XLSX.utils.book_new();
-                }
-            } else {
-                workbook = XLSX.utils.book_new();
-            }
-
-            const sheetName = this.getSheetNameForCountry(selectedCountry);
-            const worksheet = XLSX.utils.json_to_sheet(data || []);
-
-            // Remover sheet existente com mesmo nome, se houver
-            if (workbook.SheetNames?.includes(sheetName)) {
-                delete workbook.Sheets[sheetName];
-                workbook.SheetNames = workbook.SheetNames.filter(n => n !== sheetName);
-            }
-            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-
-            // Salvar localmente
-            XLSX.writeFile(workbook, this.localCachePath);
-            
-            console.log('✅ Dados salvos na planilha local (aba:', sheetName, ')');
-            console.log('⚠️ Nota: Para sincronizar com Google Drive, seria necessário implementar upload via API');
-            
-        } catch (error) {
-            console.error('Erro ao salvar dados:', error);
-            throw error;
-        }
+    async saveSpreadsheetData() {
+        console.log('🚫 saveSpreadsheetData não implementado sem cache/local.');
+        throw new Error('Salvar no Google Drive não está implementado');
     }
 
     /**
      * Força atualização do cache
      */
     async refreshCache() {
-        try {
-            // Remover cache existente
-            if (fs.existsSync(this.localCachePath)) {
-                fs.unlinkSync(this.localCachePath);
-            }
-            
-            // Baixar nova versão
-            return await this.downloadSpreadsheet();
-            
-        } catch (error) {
-            console.error('Erro ao atualizar cache:', error);
-            throw error;
-        }
+        // Sem cache; apenas rebaixa para validar acesso
+        return await this.downloadSpreadsheet();
     }
 }
 

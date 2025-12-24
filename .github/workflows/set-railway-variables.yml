@@ -11,14 +11,6 @@ on:
         description: 'NODE_ENV (default: production)'
         required: false
         default: 'production'
-      FORCE_LOCAL_EXCEL:
-        description: 'FORCE_LOCAL_EXCEL (1=força arquivo local, 0=permite URL)'
-        required: false
-        default: '1'
-      EXCEL_PATH:
-        description: 'Caminho do Excel ou URL pública XLSX'
-        required: false
-        default: './data/cached_spreadsheet.xlsx'
       DATABASE_URL:
         description: 'DATABASE_URL (opcional: define e ativa USE_DB=true quando presente)'
         required: false
@@ -160,8 +152,6 @@ jobs:
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           INPUT_USE_DB: ${{ github.event.inputs.USE_DB }}
           INPUT_NODE_ENV: ${{ github.event.inputs.NODE_ENV }}
-          INPUT_FORCE_LOCAL_EXCEL: ${{ github.event.inputs.FORCE_LOCAL_EXCEL }}
-          INPUT_EXCEL_PATH: ${{ github.event.inputs.EXCEL_PATH }}
           INPUT_SESSION_SECRET: ${{ github.event.inputs.SESSION_SECRET }}
           INPUT_DATABASE_URL: ${{ github.event.inputs.DATABASE_URL }}
           INPUT_GOOGLE_DRIVE_FILE_ID: ${{ github.event.inputs.GOOGLE_DRIVE_FILE_ID }}
@@ -185,14 +175,6 @@ jobs:
           fi
           # Required/defaulted variables
           railway variables --project "$RAILWAY_PROJECT_ID" NODE_ENV="${INPUT_NODE_ENV:-production}"
-          # FORCE_LOCAL_EXCEL: set only if input is provided; otherwise auto-toggle later based on Drive ID
-          if [ -n "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-            railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL="$INPUT_FORCE_LOCAL_EXCEL"
-            echo "FORCE_LOCAL_EXCEL set from input: $INPUT_FORCE_LOCAL_EXCEL"
-          else
-            echo "FORCE_LOCAL_EXCEL left unchanged here; will auto-toggle based on Drive ID."
-          fi
-          railway variables --project "$RAILWAY_PROJECT_ID" EXCEL_PATH="${INPUT_EXCEL_PATH:-./data/cached_spreadsheet.xlsx}"
           railway variables --project "$RAILWAY_PROJECT_ID" DEFAULT_ADMIN_ALLOWED_COUNTRIES="${INPUT_DEFAULT_ADMIN_ALLOWED_COUNTRIES:-US,CA,MX}"
 
           # Database URL and USE_DB handling
@@ -225,17 +207,9 @@ jobs:
           if [ -n "$FINAL_DRIVE_ID" ]; then
             railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_DRIVE_FILE_ID="$FINAL_DRIVE_ID"
             echo "GOOGLE_DRIVE_FILE_ID set (Drive enabled)."
-            if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-              railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL=0
-              echo "FORCE_LOCAL_EXCEL=0 (auto) due to Drive ID present."
-            fi
           else
             railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_DRIVE_FILE_ID=
             echo "GOOGLE_DRIVE_FILE_ID empty; Drive disabled."
-            if [ -z "$INPUT_FORCE_LOCAL_EXCEL" ]; then
-              railway variables --project "$RAILWAY_PROJECT_ID" FORCE_LOCAL_EXCEL=1
-              echo "FORCE_LOCAL_EXCEL=1 (auto) because Drive ID absent."
-            fi
           fi
           if [ -n "$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL" ]; then
             railway variables --project "$RAILWAY_PROJECT_ID" GOOGLE_SERVICE_ACCOUNT_EMAIL="$INPUT_GOOGLE_SERVICE_ACCOUNT_EMAIL"
@@ -250,7 +224,5 @@ jobs:
           echo "- USE_DB=${{ github.event.inputs.USE_DB }} (auto true when DATABASE_URL present and no input)"
           echo "- DATABASE_URL=${{ github.event.inputs.DATABASE_URL != '' && 'FROM INPUT' || (secrets.DATABASE_URL != '' && 'FROM SECRET' || 'EMPTY') }}"
           echo "- NODE_ENV=${{ github.event.inputs.NODE_ENV }}"
-          echo "- FORCE_LOCAL_EXCEL=${{ github.event.inputs.FORCE_LOCAL_EXCEL }} (auto when Drive ID present/absent and no input)"
-          echo "- EXCEL_PATH=${{ github.event.inputs.EXCEL_PATH }}"
           echo "- DEFAULT_ADMIN_ALLOWED_COUNTRIES=${{ github.event.inputs.DEFAULT_ADMIN_ALLOWED_COUNTRIES }}"
           echo "Optionals: SESSION_SECRET, GOOGLE_DRIVE_FILE_ID (input/secret), GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY"

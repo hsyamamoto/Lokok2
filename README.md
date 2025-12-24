@@ -53,7 +53,6 @@ No Railway, vá em Settings → Variables e adicione:
 ```
 NODE_ENV=production
 SESSION_SECRET=lokok-railway-secret-2024
-EXCEL_PATH=./data/Wholesale Suppliers and Product Opportunities.xlsx
 ```
 
 **Importante**: A variável `DATABASE_URL` será configurada automaticamente pelo Railway.
@@ -87,12 +86,10 @@ npm start
 
 ```
 LOKOK2/
-├── data/                          # Dados (Excel)
 ├── public/                        # Arquivos estáticos
 ├── views/                         # Templates EJS
 ├── server.js                      # Servidor principal
 ├── database.js                    # Configuração do banco
-├── userRepository.js              # Repositório de usuários
 ├── package.json                   # Dependências
 ├── railway.json                   # Configuração Railway
 ├── .env.example                   # Exemplo de variáveis
@@ -132,7 +129,7 @@ O sistema migra automaticamente os dados do Excel para PostgreSQL na primeira ex
 
 - **Backend**: Node.js, Express.js
 - **Frontend**: EJS, Bootstrap
-- **Banco**: PostgreSQL (produção), Excel (desenvolvimento)
+- **Banco**: PostgreSQL (produção)
 - **Autenticação**: bcryptjs, express-session
 - **Deploy**: Railway
 

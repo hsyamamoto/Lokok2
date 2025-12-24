@@ -89,26 +89,28 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Authenticate Railway CLI with token
+      - name: Prepare Railway auth (no interactive login)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           set -e
+          TOKEN_SOURCE=""
           TOKEN="$RAILWAY_TOKEN"
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            TOKEN_SOURCE="project"
+          fi
           if [ -z "$TOKEN" ] && [ -n "$RAILWAY_API_TOKEN" ]; then
             TOKEN="$RAILWAY_API_TOKEN"
+            TOKEN_SOURCE="account"
           fi
-          if [ -n "$TOKEN" ]; then
-            echo "Authenticating Railway CLI with token"
-            railway login --token "$TOKEN" || {
-              echo "ERROR: Falha ao autenticar com o token fornecido. Verifique se o token é válido e possui acesso ao projeto." >&2
-              exit 1
-            }
-          else
-            echo "ERROR: Nenhum token Railway fornecido." >&2
+          if [ -z "$TOKEN" ]; then
+            echo "ERROR: Nenhum token Railway fornecido (RAILWAY_TOKEN/RAILWAY_API_TOKEN)." >&2
             exit 1
           fi
+          echo "Usando token Railway via variável de ambiente (tipo: $TOKEN_SOURCE)."
+          echo "RAILWAY_TOKEN=$TOKEN" >> $GITHUB_ENV
+          railway --version || true
 
       - name: Collect Railway environment and production info
         env:

@@ -3,10 +3,6 @@ name: Deploy to Railway v2
 on:
   workflow_dispatch:
     inputs:
-      EXCEL_PATH:
-        description: 'Excel path or public XLSX URL (optional)'
-        required: false
-        default: ''
       PUBLIC_URL:
         description: 'Public URL to verify after deploy (optional)'
         required: false
@@ -113,18 +109,7 @@ jobs:
             echo "Skipping status: project tokens may not permit status; continuing"
           fi
 
-      - name: Optional Excel download
-        env:
-          EXCEL_PATH_INPUT: ${{ github.event.inputs.EXCEL_PATH }}
-        run: |
-          set -e
-          mkdir -p data
-          if [ -n "$EXCEL_PATH_INPUT" ] && echo "$EXCEL_PATH_INPUT" | grep -qiE '^https?://'; then
-            echo "Downloading Excel from EXCEL_PATH_INPUT to data/cached_spreadsheet.xlsx"
-            curl -L "$EXCEL_PATH_INPUT" -o data/cached_spreadsheet.xlsx
-          else
-            echo "No EXCEL_PATH URL provided; skipping download"
-          fi
+      # Removed: Excel download — app now reads from Google Drive only
 
       - name: Resolve PUBLIC_URL param
         env:

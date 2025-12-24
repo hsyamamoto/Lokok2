@@ -37,6 +37,7 @@
             <div class="flex justify-between items-center h-16">
                 <a href="/dashboard" class="flex items-center text-sky-800 text-xl font-bold hover:text-sky-600 transition-colors">
                     <i class="fas fa-search mr-2"></i>Search System
+                    <span class="ml-3 text-xs bg-sky-200 text-sky-800 px-2 py-0.5 rounded-full">v2025-12-15</span>
                 </a>
                 <div class="flex items-center space-x-4">
                     <a href="/dashboard" class="text-sky-800 hover:text-sky-900 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200">
@@ -76,7 +77,7 @@
                     <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 text-sky-800 px-4 py-3">
                         <i class="fas fa-info-circle mr-2"></i>
                         Operador: a busca por Supplier está liberada em todos os países (US, CA, MX).
-                        As ações de Edit/Delete continuam restritas a administradores e gerentes.
+    As ações de Edit/Delete são restritas ao Admin ou ao Dono do registro.
                     </div>
                     <% } %>
                     <form method="GET" action="/search">
@@ -265,6 +266,7 @@
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Website</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account Status</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Manager</th>
@@ -276,7 +278,23 @@
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <% results.forEach(function(record) { %>
-                                        <% const canSeeDetails = (user.role === 'admin' || (user.role === 'gerente' && record._isResponsible)); %>
+                                        <% 
+                                           var isManager = ['gerente','manager'].includes(String(user.role || '').toLowerCase());
+                                           var isMarceloCA = (
+                                               isManager &&
+                                               (user.email || '').toLowerCase() === 'marcelogalvis@mylokok.com' &&
+                                               (
+                                                   (typeof selectedCountry !== 'undefined' && selectedCountry === 'CA') ||
+                                                   (record._countryCode === 'CA')
+                                               )
+                                           );
+                                           var canSeeDetails = (user.role === 'admin') || (isManager && (record._isResponsible || isMarceloCA));
+                                           var canSeeNotesAndComments = (function(){
+                                               const role = String(user.role || '').toLowerCase();
+                                               const isOperator = ['operador','operator'].includes(role);
+                                               return (user.role === 'admin') || (isManager && (record._isResponsible || isMarceloCA)) || isOperator;
+                                           })(); 
+                                        %>
                                         <tr>
                                             <td class="px-4 py-2 text-sm text-gray-900"><%= record.Name || 'N/A' %></td>
                                             <td class="px-4 py-2 text-sm">
@@ -289,6 +307,7 @@
                                                 <% } %>
                                             </td>
                                             <td class="px-4 py-2 text-sm"><%= canSeeDetails ? (record['CATEGORÍA'] || 'N/A') : '—' %></td>
+                                            <td class="px-4 py-2 text-sm"><%= canSeeDetails ? (record.Type || 'N/A') : '—' %></td>
                                             <td class="px-4 py-2 text-sm">
                                                 <% if (canSeeDetails) { %>
                                                     <% let accountStatusClass = 'bg-gray-100 text-gray-800';
@@ -307,15 +326,20 @@
                                                        let statusClass = 'bg-gray-100 text-gray-800';
                                                        let statusRaw = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
                                                        let status = statusRaw;
-                                                       // Normalize broken status like "CKING URRRENTLY NOT PRIORITY" to "CHECKING"
+                                                       // Normaliza casos quebrados como "CKING ... NOT PRIORITY" para CHECKING
                                                        if (/CKING.*NOT PRIORITY/i.test(statusRaw)) {
                                                            status = 'CHECKING';
                                                        }
-                                                       if (status.includes('BUYING')) statusClass = 'bg-green-100 text-green-800';
-                                                       else if (status.includes('PENDING')) statusClass = 'bg-yellow-100 text-yellow-800';
-                                                       else if (status.includes('CHECKING')) statusClass = 'bg-green-100 text-green-800';
-                                                       else if (status.includes('NOT')) statusClass = 'bg-red-100 text-red-800';
-                                                       else if (status.includes('RED FLAG')) statusClass = 'bg-red-100 text-red-800'; 
+                                                       const S = String(status || '').trim().toUpperCase();
+                                                       if (S === 'BUYING') {
+                                                           statusClass = 'bg-emerald-50 text-emerald-700';
+                                                       } else if (['CHECKING','WORK WITH DISTRIBUTORS','TO DEFINE','PENDING APPROVAL','FOLLOW UP'].includes(S)) {
+                                                           statusClass = 'bg-yellow-50 text-yellow-700';
+                                                       } else if (['REJECTED','ONLY BRICK & MORTAR STORES','NOT 3RD PARTY SELLERS','CURRENTLY NOT PRIORITY'].includes(S)) {
+                                                           statusClass = 'bg-amber-50 text-amber-700';
+                                                       } else if (S.includes('WEBSITE NOT WORK') || ['SEEMS NOT LEGIT','RETAILER','RED FLAG','NOT INTERESTING','NO AUTHENTICITY','NO AMAZON CURRENTLY','NO AMAZON'].includes(S)) {
+                                                           statusClass = 'bg-rose-50 text-rose-700';
+                                                       }
                                                     %>
                                                     <span class="<%= statusClass %> px-2 py-1 rounded-lg text-xs font-medium break-words"><%= status %></span>
                                                 <% } else { %>
@@ -333,14 +357,14 @@
                                                 <span class="<%= prioClass %> text-white px-2 py-1 rounded-full text-xs font-medium">P<%= prio %></span>
                                             </td>
                                             <td class="px-4 py-2 text-sm text-gray-900">
-                                                <% if (canSeeDetails) { %>
+                                                <% if (canSeeNotesAndComments) { %>
                                                     <span class="block max-w-xs break-words"><%= record['Description/Notes'] || 'N/A' %></span>
                                                 <% } else { %>
                                                     <span class="text-gray-400">—</span>
                                                 <% } %>
                                             </td>
                                             <td class="px-4 py-2 text-sm text-gray-900">
-                                                <% if (canSeeDetails) { %>
+                                                <% if (canSeeNotesAndComments) { %>
                                                     <span class="block max-w-xs break-words"><%= record['Comments'] || 'N/A' %></span>
                                                 <% } else { %>
                                                     <span class="text-gray-400">—</span>
@@ -348,15 +372,15 @@
                                             </td>
                                             <td class="px-4 py-2 text-sm">
                                                 <% 
-                                                    const isMarceloCA = (
-                                                        user.role === 'gerente' &&
-                                                        (user.email || '').toLowerCase() === 'marcelogalvis@mylokok.com' &&
-                                                        (
-                                                            (typeof selectedCountry !== 'undefined' && selectedCountry === 'CA') ||
-                                                            (record._countryCode === 'CA')
-                                                        )
-                                                    );
-                                                    const canEditDelete = (user.role === 'admin') || (user.role === 'gerente' && (record._isResponsible || isMarceloCA));
+                                                    // Evitar duplicações de declaração: calcular em linha
+                                                    const allowedCountries = (user.allowedCountries || []).map(c => String(c).toUpperCase());
+                                                    const selCountry = String(record._countryCode || selectedCountry || '').toUpperCase();
+                                                    const isAllowedCountry = allowedCountries.includes(selCountry);
+                                                    const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+                                                    const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+                                                    const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+                                                    const isCreator = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+                                                    const canEditDelete = (user.role === 'admin') || isCreator || ((String(user.email || '').toLowerCase() === 'marcelogalvis@mylokok.com') && !!record._isResponsible);
                                                 %>
                                                 <% if (canEditDelete) { %>
                                                     <div class="flex items-center gap-2">
@@ -408,21 +432,27 @@
                                     </div>
                                     
                                     <% 
-                                        const isMarceloCA = (
-                                            user.role === 'gerente' &&
+                                        var isManager = ['gerente','manager'].includes(String(user.role || '').toLowerCase());
+                                        var isMarceloCA = (
+                                            isManager &&
                                             (user.email || '').toLowerCase() === 'marcelogalvis@mylokok.com' &&
                                             (
                                                 (typeof selectedCountry !== 'undefined' && selectedCountry === 'CA') ||
                                                 (record._countryCode === 'CA')
                                             )
                                         );
-                                        const canSeeDetails = (user.role === 'admin') || (user.role === 'gerente' && (record._isResponsible || isMarceloCA));
+                                        var canSeeDetails = (user.role === 'admin') || (isManager && (record._isResponsible || isMarceloCA));
                                     %>
                                     <% if (canSeeDetails) { %>
                                     <!-- Categoria -->
                                     <div class="mb-3">
                                         <div class="text-xs text-gray-500 mb-1"><i class="fas fa-tag mr-1"></i>Category:</div>
                                         <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded-lg text-xs font-medium"><%= record['CATEGORÍA'] || 'N/A' %></span>
+                                    </div>
+                                    <!-- Type -->
+                                    <div class="mb-3">
+                                        <div class="text-xs text-gray-500 mb-1"><i class="fas fa-industry mr-1"></i>Type:</div>
+                                        <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded-lg text-xs font-medium"><%= record.Type || 'N/A' %></span>
                                     </div>
                                     
                                     <!-- Status da Conta -->
@@ -445,19 +475,26 @@
                                         let statusClass = 'bg-gray-100 text-gray-800';
                                         let statusRaw = record['STATUS (PENDING APPROVAL, BUYING, CHECKING, NOT COMPETITIVE, NOT INTERESTING, RED FLAG)'] || 'N/A';
                                         let status = statusRaw;
-                                        // Normalize broken status like "CKING URRRENTLY NOT PRIORITY" to "CHECKING"
+                                        // Normaliza casos quebrados como "CKING ... NOT PRIORITY" para CHECKING
                                         if (/CKING.*NOT PRIORITY/i.test(statusRaw)) {
                                             status = 'CHECKING';
                                         }
-                                        if (status.includes('BUYING')) statusClass = 'bg-green-100 text-green-800';
-                                        else if (status.includes('PENDING')) statusClass = 'bg-yellow-100 text-yellow-800';
-                                        else if (status.includes('CHECKING')) statusClass = 'bg-green-100 text-green-800';
-                                        else if (status.includes('NOT')) statusClass = 'bg-red-100 text-red-800';
-                                        else if (status.includes('RED FLAG')) statusClass = 'bg-red-100 text-red-800';
+                                        const S2 = String(status || '').trim().toUpperCase();
+                                        if (S2 === 'BUYING') {
+                                            statusClass = 'bg-emerald-50 text-emerald-700';
+                                        } else if (['CHECKING','WORK WITH DISTRIBUTORS','TO DEFINE','PENDING APPROVAL','FOLLOW UP'].includes(S2)) {
+                                            statusClass = 'bg-yellow-50 text-yellow-700';
+                                        } else if (['REJECTED','ONLY BRICK & MORTAR STORES','NOT 3RD PARTY SELLERS','CURRENTLY NOT PRIORITY'].includes(S2)) {
+                                            statusClass = 'bg-amber-50 text-amber-700';
+                                        } else if (S2.includes('WEBSITE NOT WORK') || ['SEEMS NOT LEGIT','RETAILER','RED FLAG','NOT INTERESTING','NO AUTHENTICITY','NO AMAZON CURRENTLY','NO AMAZON'].includes(S2)) {
+                                            statusClass = 'bg-rose-50 text-rose-700';
+                                        }
                                         %>
                                         <span class="<%= statusClass %> px-2 py-1 rounded-lg text-xs font-medium break-words"><%= status %></span>
                                     </div>
                                     
+                                    <% const __role = String(user.role || '').toLowerCase(); const __isOperator = ['operador','operator'].includes(__role); %>
+                                    <% if (canSeeDetails || __isOperator) { %>
                                     <!-- Description/Notes -->
                                     <div class="mb-3">
                                         <div class="text-xs text-gray-500 mb-1"><i class="fas fa-sticky-note mr-1"></i>Description/Notes:</div>
@@ -470,6 +507,7 @@
                                         <div class="text-sm text-gray-900 break-words"><%= record['Comments'] || 'N/A' %></div>
                                     </div>
                                     <% } %>
+                                    <% } %>
                                     
                                     <!-- Responsável -->
                                     <div class="mb-3">
@@ -477,7 +515,7 @@
                                         <div class="font-semibold text-sm text-gray-900"><%= record.Responsable || 'N/A' %></div>
                                     </div>
                                     
-                                    <% if (user.role === 'gerente' && !record._isResponsible && !isMarceloCA) { %>
+                                    <% if (['gerente','manager'].includes(String(user.role || '').toLowerCase()) && !record._isResponsible && !isMarceloCA) { %>
                                     <!-- Aviso de informações limitadas -->
                                     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
                                         <div class="flex items-center">
@@ -507,21 +545,39 @@
                                     </div>
                                     <% } %>
                                     
-                                    <% if (user.role === 'admin') { %>
+                                    <% 
+                                        // Mostrar endereço no preview quando admin ou quando o usuário é o owner
+                                        var createdByIdOkPreview = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+                                        var createdByNameOkPreview = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+                                        var createdByEmailOkPreview = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+                                        var isCreatorPreview = !!(createdByIdOkPreview || createdByNameOkPreview || createdByEmailOkPreview);
+                                        if (user.role === 'admin' || isCreatorPreview) { %>
                                     <div class="border-t border-gray-200 pt-3 mt-3">
                                         <div class="mb-2">
                                             <span class="text-xs text-gray-500"><i class="fas fa-map-marker-alt mr-1"></i>Address:</span>
                                             <span class="ml-2 text-sm text-gray-900 break-words"><%= record.Address || 'N/A' %></span>
                                         </div>
-                                        <div class="mb-2">
-                                            <span class="text-xs text-gray-500"><i class="fas fa-user-cog mr-1"></i>User:</span>
-                                            <span class="ml-2 text-sm text-gray-900 font-mono"><%= record.User || 'N/A' %></span>
-                                        </div>
+                                        <% if (user.role === 'admin') { %>
+                                            <div class="mb-2">
+                                                <span class="text-xs text-gray-500"><i class="fas fa-user-cog mr-1"></i>User:</span>
+                                                <span class="ml-2 text-sm text-gray-900 font-mono"><%= record.User || 'N/A' %></span>
+                                            </div>
+                                        <% } %>
                                     </div>
                                     <% } %>
                                     
                                     <!-- Botões de Ação -->
-                                    <% if ((user.role === 'admin') || (user.role === 'gerente' && (record._isResponsible || isMarceloCA))) { %>
+                                    <% 
+                                        // Evitar duplicações de declaração: calcular em linha
+                                        const allowedCountries = (user.allowedCountries || []).map(c => String(c).toUpperCase());
+                                        const selCountry = String(record._countryCode || selectedCountry || '').toUpperCase();
+                                        const isAllowedCountry = allowedCountries.includes(selCountry);
+                                        const createdByIdOk = record.Created_By_User_ID && String(record.Created_By_User_ID).trim() === String(user.id).trim();
+                                        const createdByNameOk = record.Created_By_User_Name && String(record.Created_By_User_Name).toLowerCase().includes(String(user.name || '').toLowerCase());
+                                        const createdByEmailOk = record.Created_By_User_Email && String(record.Created_By_User_Email).toLowerCase() === String(user.email || '').toLowerCase();
+                                        const isCreator = !!(createdByIdOk || createdByNameOk || createdByEmailOk);
+                                        const canEditDelete = (user.role === 'admin') || isCreator || ((String(user.email || '').toLowerCase() === 'marcelogalvis@mylokok.com') && !!record._isResponsible);
+                                        if (canEditDelete) { %>
                                     <div class="border-t border-gray-200 pt-3 mt-3 flex items-center gap-2">
                                         <a href="/edit/<%= record._realIndexCountry %>?country=<%= record._countryCode || selectedCountry %>" 
                                            class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">

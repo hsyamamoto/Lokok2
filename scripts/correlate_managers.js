@@ -6,12 +6,13 @@
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('../database');
+const { DbUserRepository } = require('../models/UserDbRepository');
 
-function loadUsers() {
-  const usersPath = path.resolve(__dirname, '..', 'data', 'users.json');
-  const raw = fs.readFileSync(usersPath, 'utf-8');
-  const data = JSON.parse(raw);
-  return data.users || data;
+async function loadManagersFromDb() {
+  const repo = new DbUserRepository();
+  const marcelo = await repo.findByEmailAsync('marcelogalvis@mylokok.com');
+  const jeison = await repo.findByEmailAsync('jeisonanteliz@mylokok.com');
+  return { marcelo, jeison };
 }
 
 function findUser(users, email) {
@@ -123,11 +124,9 @@ function correlateInLocalJson(marcelo, jeison) {
 }
 
 async function main() {
-  const users = loadUsers();
-  const marcelo = findUser(users, 'marcelogalvis@mylokok.com');
-  const jeison = findUser(users, 'jeisonanteliz@mylokok.com');
+  const { marcelo, jeison } = await loadManagersFromDb();
   if (!marcelo || !jeison) {
-    console.error('[correlate] Usuários Marcelo/Jeison não encontrados em users.json');
+    console.error('[correlate] Usuários Marcelo/Jeison não encontrados no banco de dados');
     process.exit(1);
     return;
   }

@@ -120,6 +120,17 @@
                             </button>
                         </div>
                     </form>
+                    <!-- Inline Signup Logs Panel -->
+                    <div class="mt-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-semibold text-gray-700"><i class="fas fa-clipboard-list mr-2"></i>Cadastro - Eventos (tempo real)</h3>
+                            <div class="flex items-center space-x-2">
+                                <button type="button" onclick="clearSignupLogs()" class="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">Limpar</button>
+                            </div>
+                        </div>
+                        <div id="signupLogs" class="bg-gray-50 border border-gray-200 rounded-md p-2 max-h-40 overflow-y-auto text-xs text-gray-700"></div>
+                        <p class="text-[11px] text-gray-500 mt-1">Eventos são enviados e persistidos no servidor para auditoria.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -302,6 +313,59 @@
     </div>
 
     <script>
+        // --- UI Logging Helpers (Cadastro) ---
+        function sanitizeUserData(data) {
+            try {
+                const copy = JSON.parse(JSON.stringify(data || {}));
+                if (typeof copy.password === 'string') {
+                    copy.passwordLength = copy.password.length;
+                    delete copy.password;
+                }
+                return copy;
+            } catch (_) {
+                return { error: 'sanitize_failed' };
+            }
+        }
+
+        function appendSignupLog(entry) {
+            const el = document.getElementById('signupLogs');
+            if (!el) return;
+            const row = document.createElement('div');
+            row.className = 'py-1 border-b border-gray-200 last:border-b-0';
+            const ts = new Date(entry.ts || Date.now()).toLocaleString();
+            row.textContent = `${ts} | ${entry.event} | ${JSON.stringify(entry.data)}`;
+            el.prepend(row);
+        }
+
+        async function uiTrack(event, data) {
+            const payload = {
+                event,
+                ts: new Date().toISOString(),
+                page: 'users',
+                data: sanitizeUserData(data)
+            };
+            appendSignupLog(payload);
+            try {
+                await fetch('/admin/logs/ui', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (_) {
+                // falha em enviar log não bloqueia UI
+            }
+        }
+
+        function clearSignupLogs() {
+            const el = document.getElementById('signupLogs');
+            if (el) el.innerHTML = '';
+        }
+
+        // Log de carregamento da página de cadastro
+        document.addEventListener('DOMContentLoaded', () => {
+            uiTrack('FORM_LOAD', { url: location.pathname });
+        });
+
         // Add User Form Handler
         document.getElementById('addUserForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -318,8 +382,11 @@
             if (allowed.length > 0) {
                 userData.allowedCountries = allowed;
             }
+            uiTrack('FORM_SUBMIT_CLICK', { email: userData.email, role: userData.role, name: userData.name });
+            uiTrack('FORM_DATA_COLLECTED', { email: userData.email, role: userData.role, name: userData.name, allowedCountries: userData.allowedCountries || [], passwordLength: String(userData.password || '').length });
             
             try {
+                uiTrack('REQUEST_START', { endpoint: '/api/users' });
                 const response = await fetch('/api/users', {
                     method: 'POST',
                     headers: {
@@ -331,13 +398,16 @@
                 const result = await response.json();
                 
                 if (result.success) {
+                    uiTrack('REQUEST_SUCCESS', { status: response.status, success: true, message: result.message, userId: result.user && result.user.id });
                     showMessage('User created successfully!', 'success');
                     this.reset();
                     setTimeout(() => location.reload(), 1500);
                 } else {
+                    uiTrack('REQUEST_FAILURE', { status: response.status, success: false, message: result.message, error: result.error });
                     showMessage(result.message || 'Error creating user', 'error');
                 }
             } catch (error) {
+                uiTrack('REQUEST_ERROR', { error: String(error) });
                 showMessage('Error creating user', 'error');
             }
         });

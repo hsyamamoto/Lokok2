@@ -262,6 +262,39 @@ app.get('/__whoami', (req, res) => {
     res.status(200).send(__filename);
 });
 
+// Diagnóstico: verificar se os templates contêm o badge esperado
+app.get('/__template-version', (req, res) => {
+    try {
+        const viewsDir = app.get('views');
+        const badge = 'v2025-12-24';
+        const files = ['login.ejs', 'dashboard.ejs', 'form.ejs', 'search.ejs'];
+        const results = {};
+        for (const f of files) {
+            const filePath = path.join(viewsDir, f);
+            let exists = false;
+            let hasBadge = false;
+            let mtime = null;
+            try {
+                const stat = fs.statSync(filePath);
+                exists = true;
+                mtime = stat.mtime?.toISOString?.() || null;
+                const content = fs.readFileSync(filePath, 'utf8');
+                hasBadge = content.includes(badge);
+            } catch (e) {
+                exists = false;
+            }
+            results[f] = { exists, hasBadge, mtime };
+        }
+        res.json({
+            viewsDir,
+            badge,
+            files: results
+        });
+    } catch (e) {
+        res.status(500).json({ error: e?.message || String(e) });
+    }
+});
+
 // Diagnóstico de runtime (para identificar qual servidor está rodando em produção)
 app.get('/runtime', (req, res) => {
     try {

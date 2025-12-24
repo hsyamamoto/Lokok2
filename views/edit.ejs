@@ -299,7 +299,7 @@
                             <% const wzf = String(record['Did you find a warehouse or truckload zone during your map search?'] || '').trim(); %>
                             <option value="" <%= wzf === '' ? 'selected' : '' %>>Select...</option>
                             <option value="Yes" <%= wzf === 'Yes' ? 'selected' : '' %>>Yes</option>
-                            <option value="No2" <%= wzf === 'No2' ? 'selected' : '' %>>No2</option>
+                            <option value="No" <%= (wzf === 'No' || wzf === 'No2') ? 'selected' : '' %>>No</option>
                         </select>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -425,21 +425,21 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                         <label for="firstEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
-                            1º e-mail enviado
+                            1st email sent
                         </label>
                         <input type="date" id="firstEmailDate" name="firstEmailDate" value="<%= record['First Email Sent'] || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">
                     </div>
                     <div>
                         <label for="secondEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
-                            2º e-mail enviado
+                            2nd email sent
                         </label>
                         <input type="date" id="secondEmailDate" name="secondEmailDate" value="<%= record['Second Email Sent'] || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">
                     </div>
                     <div>
                         <label for="thirdEmailDate" class="block text-sm font-medium text-gray-700 mb-2">
-                            3º e-mail enviado
+                            3rd email sent
                         </label>
                         <input type="date" id="thirdEmailDate" name="thirdEmailDate" value="<%= record['Third Email Sent'] || '' %>"
                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-300 focus:border-rose-300 transition-colors duration-200">

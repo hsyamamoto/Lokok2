@@ -2040,6 +2040,7 @@ app.get('/users', requireAuth, requireAdmin, async (req, res) => {
 // Healthcheck detalhado para diagnóstico em produção (instantâneo, sem I/O bloqueante)
 app.get('/health', (req, res) => {
     try {
+        console.log('[HEALTH] GET /health', { ip: req.ip, ua: req.headers['user-agent'] });
         const roleCounts = {}; // não consulta DB para evitar atrasos
         res.status(200).json({
             status: 'ok',
@@ -2069,6 +2070,7 @@ app.get('/health', (req, res) => {
 // Suporte a HEAD para healthcheck de plataformas que usam HEAD
 app.head('/health', (req, res) => {
     try {
+        console.log('[HEALTH] HEAD /health', { ip: req.ip, ua: req.headers['user-agent'] });
         res.status(200).end();
     } catch (_) {
         res.status(500).end();
@@ -3063,7 +3065,9 @@ async function startServer() {
             
             if (NODE_ENV === 'production' && googleDriveService) {
                 console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Google Drive');
-                console.log('🌐 [PRODUCTION DEBUG] URL de produção: https://lokok2-production.up.railway.app');
+                if (process.env.PUBLIC_URL) {
+                    console.log('🌐 [PRODUCTION DEBUG] Public URL:', process.env.PUBLIC_URL);
+                }
             }
             
             if (NODE_ENV === 'development') {

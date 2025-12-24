@@ -19,6 +19,22 @@ const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const REQUIRE_DB = (process.env.REQUIRE_DB === '1' || String(process.env.REQUIRE_DB || '').toLowerCase() === 'true');
 
+// Serviço opcional do Google Drive (instanciado somente se configurado)
+let googleDriveService = null;
+try {
+    const GoogleDriveService = require('./googleDriveService');
+    if (process.env.GOOGLE_DRIVE_FILE_ID) {
+        googleDriveService = new GoogleDriveService();
+    }
+} catch (e) {
+    // Mantém nulo se módulo não existir ou falhar
+    console.warn('[PRODUCTION DEBUG] GoogleDriveService não carregado:', e?.message || String(e));
+}
+
+function isGoogleDriveAvailable() {
+    return (typeof googleDriveService !== 'undefined' && googleDriveService !== null && !!process.env.GOOGLE_DRIVE_FILE_ID);
+}
+
 
 function isDbEnabledForWrites() {
     const isProd = NODE_ENV === 'production';
@@ -1500,7 +1516,7 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     try {
         console.log('[PRODUCTION DEBUG] Carregando dados para o dashboard...');
         console.log('[PRODUCTION DEBUG] Ambiente:', NODE_ENV);
-        console.log('[PRODUCTION DEBUG] Google Drive Service disponível:', !!googleDriveService);
+        console.log('[PRODUCTION DEBUG] Google Drive Service disponível:', isGoogleDriveAvailable());
         
         const allowedCountries = normalizeAllowedCountries(req.session.user?.allowedCountries);
         const selectedCountry = req.session.selectedCountry || (allowedCountries[0] || 'US');
@@ -1887,6 +1903,15 @@ app.get('/healthz', (req, res) => {
     }
 });
 
+// Compatibilidade com healthchecks que usam HEAD
+app.head('/healthz', (req, res) => {
+    try {
+        res.status(200).end();
+    } catch (e) {
+        res.status(500).end();
+    }
+});
+
 app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => {
     if (REQUIRE_DB && !isDbEnabledForWrites()) {
         return res.status(503).json({ success: false, message: 'Banco de dados é obrigatório para escrever dados. Configure USE_DB/DATABASE_URL.' });
@@ -2015,7 +2040,7 @@ app.post('/add-record', requireAuth, requireManagerOrAdmin, async (req, res) => 
     // Limpar detalhes de prioridade da sessão após salvar
     req.session.priorityDetails = null;
     
-    const pathUsed = useDb ? 'database' : (googleDriveService ? 'googleDrive' : 'localExcel');
+    const pathUsed = useDb ? 'database' : (isGoogleDriveAvailable() ? 'googleDrive' : 'localExcel');
     if (saved) {
         res.json({ success: true, message: 'Record added successfully!', debug: { path: pathUsed, country: selectedCountry } });
     } else {
@@ -3027,7 +3052,7 @@ async function startServer() {
     try {
         // Em produção, verificar se Google Drive está configurado
         if (NODE_ENV === 'production') {
-            if (process.env.GOOGLE_DRIVE_FILE_ID) {
+            if (isGoogleDriveAvailable()) {
                 console.log('🔄 Verificando conexão com Google Drive (não bloqueante)...');
                 (async () => {
                     try {
@@ -3037,6 +3062,8 @@ async function startServer() {
                         console.warn('⚠️ Aviso: Erro ao conectar com Google Drive:', error.message);
                     }
                 })();
+            } else if (process.env.GOOGLE_DRIVE_FILE_ID) {
+                console.warn('⚠️ GOOGLE_DRIVE_FILE_ID configurado, mas serviço do Google Drive não está disponível. Usando modo local.');
             } else {
                 console.warn('⚠️ GOOGLE_DRIVE_FILE_ID não configurado. Usando modo local.');
             }
@@ -3063,7 +3090,7 @@ async function startServer() {
             console.log(`📊 [PRODUCTION DEBUG] Ambiente: ${NODE_ENV}`);
             console.log(`📊 [PRODUCTION DEBUG] Timestamp: ${new Date().toISOString()}`);
             
-            if (NODE_ENV === 'production' && googleDriveService) {
+            if (NODE_ENV === 'production' && isGoogleDriveAvailable()) {
                 console.log('📊 [PRODUCTION DEBUG] Fonte de dados: Google Drive');
                 if (process.env.PUBLIC_URL) {
                     console.log('🌐 [PRODUCTION DEBUG] Public URL:', process.env.PUBLIC_URL);
@@ -3344,7 +3371,7 @@ app.get('/switch-country', requireAuth, (req, res) => {
 // Rota administrativa para forçar atualização do cache do Google Drive
 app.get('/admin/refresh-cache', requireAuth, requireAdmin, async (req, res) => {
     try {
-        if (!googleDriveService) {
+        if (!isGoogleDriveAvailable()) {
             console.warn('[PRODUCTION DEBUG] Tentativa de atualizar cache sem Google Drive configurado');
             return res.status(400).render('error', { user: req.session.user, message: 'Google Drive não está configurado no servidor.' });
         }
@@ -3650,7 +3677,7 @@ app.get('/admin/source-status', requireAuth, requireAdmin, async (req, res) => {
   try {
     const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL) && typeof getJsonSuppliers === 'function';
     const db_active = useDb;
-    const driveConfigured = !!googleDriveService && !!process.env.GOOGLE_DRIVE_FILE_ID;
+    const driveConfigured = isGoogleDriveAvailable();
     const selectedCountry = req.session.selectedCountry || 'US';
     const source = db_active ? 'database' : (driveConfigured ? 'googleDrive' : 'none');
 

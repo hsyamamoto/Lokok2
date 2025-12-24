@@ -46,9 +46,28 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install Railway CLI
+      - name: Install Railway CLI (retry + version fallback)
         run: |
-          npm i -g @railway/cli
+          set -e
+          VERSIONS=("4.16.1" "4.16.0" "4.15.0")
+          SUCCESS=0
+          for V in "${VERSIONS[@]}"; do
+            for ATTEMPT in 1 2 3; do
+              echo "Installing @railway/cli@${V} (attempt ${ATTEMPT})"
+              if npm i -g "@railway/cli@${V}"; then
+                SUCCESS=1
+                break
+              else
+                echo "Install failed for @railway/cli@${V}. Waiting 15s before retry..."
+                sleep 15
+              fi
+            done
+            [ $SUCCESS -eq 1 ] && break
+          done
+          if [ $SUCCESS -ne 1 ]; then
+            echo "ERROR: Unable to install Railway CLI after retries and fallbacks." >&2
+            exit 1
+          fi
           railway --version
 
       - name: Prepare Railway token env (v4, no login)

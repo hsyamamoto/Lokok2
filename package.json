@@ -13,7 +13,9 @@
     "maint:update-user": "node scripts/update_user_allowed_countries.js",
     "sync:lokok": "node scripts/sync_wholesale_lokok.js",
     "clean-db": "node scripts/clean_db.js",
-    "migrate-db": "node scripts/migrate_db.js"
+    "migrate-db": "node scripts/migrate_db.js",
+    "smoke:pre": "node scripts/smoke_predeploy.js",
+    "smoke:post": "node scripts/smoke_postdeploy.js"
   },
   "engines": {
     "node": ">=18.0.0",

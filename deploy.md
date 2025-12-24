@@ -129,6 +129,30 @@ GOOGLE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...sua-chave...\n-----END PRIVAT
 - [ ] Edição funciona (para usuários autorizados)
 - [ ] Dados foram migrados do Excel
 
+### 🧪 Smoke Tests (Pré e Pós-Deploy)
+
+Para garantir que um deploy não quebre funcionalidades existentes nem cause perda de dados:
+
+**Pré-Deploy (local ou CI):**
+- Verifica conectividade ao banco e integridade mínima da tabela `users`.
+- Executa: `npm run smoke:pre`
+
+O script checa:
+- Presença de `DATABASE_URL` (ambiente).
+- Existência da tabela `public.users`.
+- Colunas críticas: `id`, `email`, `password_hash`, `role`, `is_active`.
+- Contagem atual de usuários.
+
+**Pós-Deploy (produção):**
+- Valida os endpoints de saúde e versão.
+- Executa: `npm run smoke:post -- https://seu-projeto.railway.app`
+
+O script checa:
+- `GET /health` responde `200` e contém `userSource: "database"`.
+- Campos numéricos presentes: `usersCount`, `usersActiveCount`, `usersInactiveCount` (quando disponíveis).
+- `roleCounts` é um objeto.
+- `GET /version` retorna `200` com `buildTime` ou `version`.
+
 ### 🐛 Solução de Problemas
 
 #### Erro de Conexão com Banco
@@ -158,6 +182,13 @@ git push
 ```
 
 O Railway fará o redeploy automaticamente.
+
+### Checklist de Segurança de Release
+- [ ] Rodar `npm run smoke:pre` e conferir `OK`.
+- [ ] Realizar backup do DB (`npm run backup-db` ou workflow `backup-railway`).
+- [ ] Fazer o deploy (push para `main` ou `railway up`).
+- [ ] Rodar `npm run smoke:post -- <BASE_URL>` e conferir `OK`.
+- [ ] Verificar manualmente as telas críticas (login, dashboard, busca, edição).
 
 ## 📊 Monitoramento
 

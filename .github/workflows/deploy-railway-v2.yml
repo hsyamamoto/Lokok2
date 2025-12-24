@@ -46,6 +46,19 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Install dependencies (for smoke tests)
+        run: |
+          set -e
+          npm ci
+
+      - name: Pre-deploy smoke (DB integrity: users table)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -e
+          # Usa .env.production do repositório para obter DATABASE_URL
+          npm run smoke:pre
+
       - name: Install Railway CLI (retry + version fallback)
         run: |
           set -e
@@ -208,22 +221,32 @@ jobs:
             echo "No service selector provided; cannot fetch logs"
           fi
 
-      - name: Verify public URL (/version)
+      - name: Verify public URL (/healthz)
         run: |
           set -e
           if [ -z "${PUBLIC_URL_FINAL}" ]; then
             echo "No PUBLIC_URL provided via input, vars.PUBLIC_URL or secrets.PUBLIC_URL; skipping verification"
             exit 0
           fi
-          echo "Verifying PUBLIC_URL: ${PUBLIC_URL_FINAL}/version"
+          # Normaliza para evitar dupla barra
+          BASE_URL="${PUBLIC_URL_FINAL%/}"
+          echo "Verifying PUBLIC_URL: ${BASE_URL}/healthz"
           set +e
-          HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" "${PUBLIC_URL_FINAL}/version")
+          # Usa HEAD primeiro para checagem leve; se falhar, tenta GET
+          HTTP_CODE=$(curl -s -o resp.txt -I -w "%{http_code}" "${BASE_URL}/healthz")
           set -e
           echo "HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" -ne 200 ]; then
-            echo "Response:"; sed -n '1,200p' resp.txt || true
-            echo "ERROR: /version returned non-200. Check service root directory and start command." >&2
-            exit 1
+            echo "HEAD /healthz non-200; retrying with GET"
+            set +e
+            HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" "${BASE_URL}/healthz")
+            set -e
+            echo "HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" -ne 200 ]; then
+              echo "Response:"; sed -n '1,200p' resp.txt || true
+              echo "ERROR: /healthz returned non-200. Check service root directory, healthcheck path e start command." >&2
+              exit 1
+            fi
           fi
           echo "Response:"; sed -n '1,200p' resp.txt
 
@@ -236,3 +259,13 @@ jobs:
           echo "Project: $RAILWAY_PROJECT_ID"
           echo "Service selector: ID=$RAILWAY_SERVICE_ID NAME=$RAILWAY_SERVICE_NAME"
           echo "Public URL (final): ${PUBLIC_URL_FINAL}"
+
+      - name: Post-deploy smoke (/health & /version)
+        run: |
+          set -e
+          URL="${PUBLIC_URL_FINAL}"
+          if [ -z "$URL" ]; then
+            URL="https://new-lokok-production.up.railway.app/"
+          fi
+          echo "Post-smoke target: $URL"
+          node scripts/smoke_postdeploy.js "$URL"

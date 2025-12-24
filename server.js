@@ -2063,10 +2063,33 @@ app.get('/users', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Healthcheck detalhado para diagnóstico em produção (instantâneo, sem I/O bloqueante)
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
     try {
         console.log('[HEALTH] GET /health', { ip: req.ip, ua: req.headers['user-agent'] });
-        const roleCounts = {}; // não consulta DB para evitar atrasos
+        // Consultas leves ao DB; em caso de erro, usar fallback não bloqueante
+        let usersCount = 0;
+        let roleCounts = {};
+        let usersActiveCount = 0;
+        let usersInactiveCount = 0;
+        try {
+            const { rows } = await pool.query('SELECT role, COUNT(*)::int AS cnt FROM users GROUP BY role');
+            rows.forEach(r => {
+                const roleKey = String(r.role || 'user').toLowerCase();
+                roleCounts[roleKey] = (roleCounts[roleKey] || 0) + (r.cnt || 0);
+                usersCount += (r.cnt || 0);
+            });
+            // Ativos/Inativos
+            const status = await pool.query('SELECT is_active, COUNT(*)::int AS cnt FROM users GROUP BY is_active');
+            status.rows.forEach(r => {
+                const active = (r.is_active === true);
+                if (active) usersActiveCount += (r.cnt || 0);
+                else usersInactiveCount += (r.cnt || 0);
+            });
+        } catch (dbErr) {
+            // Fallback silencioso: manter contagens zeradas
+            console.warn('[HEALTH] Falha ao consultar contagens de usuários:', dbErr?.message || dbErr);
+        }
+
         res.status(200).json({
             status: 'ok',
             pid: process.pid,
@@ -2084,7 +2107,9 @@ app.get('/health', (req, res) => {
             viewsPath: app.get('views'),
             userSource: 'database',
             usersFilePath: null,
-            usersCount: 0,
+            usersCount,
+            usersActiveCount,
+            usersInactiveCount,
             roleCounts
         });
     } catch (e) {

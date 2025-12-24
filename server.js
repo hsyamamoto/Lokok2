@@ -3042,16 +3042,18 @@ async function startServer() {
             }
         }
 
-        // Inicializar banco quando habilitado (tolerante a falhas)
+        // Inicializar banco quando habilitado (agora não bloqueante para subir o servidor)
         const useDb = (process.env.USE_DB === 'true' || !!process.env.DATABASE_URL);
         if (useDb) {
-            console.log('🔄 Inicializando banco de dados (JSONB)...');
-            try {
-                await initializeDatabase();
-                console.log('✅ Banco de dados inicializado.');
-            } catch (error) {
-                console.warn('⚠️ [DB INIT] Falha ao inicializar banco; iniciando servidor mesmo assim:', error?.message || String(error));
-            }
+            console.log('🔄 Inicializando banco de dados (JSONB)... (async, não bloqueante)');
+            (async () => {
+                try {
+                    await initializeDatabase();
+                    console.log('✅ Banco de dados inicializado.');
+                } catch (error) {
+                    console.warn('⚠️ [DB INIT] Falha ao inicializar banco (async):', error?.message || String(error));
+                }
+            })();
         } else {
             console.log('ℹ️ Banco de dados desabilitado (USE_DB/DATABASE_URL não setados)');
         }
